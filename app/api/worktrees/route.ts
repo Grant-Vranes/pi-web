@@ -46,6 +46,7 @@ export async function GET(req: Request) {
       isGit,
       isTopLevel: project.isTopLevel,
       currentWorktreePath,
+      currentBranch: project.branch ?? null,
       worktrees,
     });
   } catch (error) {

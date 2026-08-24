@@ -297,6 +297,56 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
+  const activeCwd = session?.cwd ?? newSessionCwd ?? null;
+
+  useEffect(() => {
+    if (!activeCwd) {
+      setCurrentBranch(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshBranch = async () => {
+      try {
+        const response = await fetch(`/api/worktrees?cwd=${encodeURIComponent(activeCwd)}`);
+        if (!response.ok) return;
+        const d = await response.json() as { currentBranch?: string | null };
+        if (cancelled) return;
+        setCurrentBranch(d.currentBranch ?? null);
+      } catch {
+        if (!cancelled) setCurrentBranch(null);
+      }
+    };
+
+    void refreshBranch();
+
+    const handleWindowRefresh = () => {
+      void refreshBranch();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshBranch();
+    };
+
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshBranch();
+    }, 2500);
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleWindowRefresh);
+    window.addEventListener("online", handleWindowRefresh);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleWindowRefresh);
+      window.removeEventListener("online", handleWindowRefresh);
+    };
+  }, [activeCwd]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -548,6 +598,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
       modelSwitching={modelSwitching}
+      currentBranch={currentBranch}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}

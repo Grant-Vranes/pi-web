@@ -20,7 +20,27 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { AssistantOutline } = await jiti.import("./ChatMinimap.tsx");
+const {
+  AssistantOutline,
+  MINIMAP_PINNED_STORAGE_KEY,
+  shouldKeepPreviewOpen,
+  getPinnedStateFromStorage,
+} = await jiti.import("./ChatMinimap.tsx");
+
+test("preview open state stays true when pinned", () => {
+  assert.equal(shouldKeepPreviewOpen({ isPinned: true, minimapHovered: false }), true);
+  assert.equal(shouldKeepPreviewOpen({ isPinned: true, minimapHovered: true }), true);
+  assert.equal(shouldKeepPreviewOpen({ isPinned: false, minimapHovered: true }), true);
+  assert.equal(shouldKeepPreviewOpen({ isPinned: false, minimapHovered: false }), false);
+});
+
+test("reads pinned state from localStorage value safely", () => {
+  assert.equal(MINIMAP_PINNED_STORAGE_KEY, "pi-chat-minimap-pinned");
+  assert.equal(getPinnedStateFromStorage("1"), true);
+  assert.equal(getPinnedStateFromStorage("0"), false);
+  assert.equal(getPinnedStateFromStorage(null), false);
+  assert.equal(getPinnedStateFromStorage("true"), false);
+});
 
 test("renders math in headings without disabling heading navigation", () => {
   const html = renderToStaticMarkup(
