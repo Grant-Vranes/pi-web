@@ -135,6 +135,42 @@ npm run lint
 
 Do not run `next build` or `npm run build` during normal development. It writes to `.next/` and can interfere with the development server; leave builds for release work.
 
+## Desktop (Electron)
+
+The repository includes an Electron wrapper in `desktop/` that launches Pi Web locally and adds tray/background behavior plus a native session-row context menu integration.
+
+### Debug desktop mode
+
+```bash
+npm run desktop:dev
+```
+
+This runs the web dev server and Electron together. Electron connects to `127.0.0.1:30141` and, in dev mode, reuses that external server.
+
+### Run desktop app against production web assets
+
+```bash
+npm run build
+npm run desktop:start
+```
+
+`desktop:start` launches Electron and starts embedded `pi-web` from `bin/pi-web.js` (or reuses an already-running server on the same port).
+
+### Package installers
+
+```bash
+npm run desktop:dist
+```
+
+This runs `npm run build` and packages installers via `electron-builder`.
+Default targets:
+
+- macOS: `dmg`
+- Windows: `nsis`
+- Linux: `AppImage`
+
+Build artifacts are written under `dist/`.
+
 Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
 
 ## Repository Layout

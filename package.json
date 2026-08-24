@@ -33,6 +33,10 @@
     "build": "next build --webpack",
     "start": "next start -H 127.0.0.1 -p 30141",
     "start:lan": "next start -H 0.0.0.0 -p 30141",
+    "desktop:dev": "concurrently \"npm run dev\" \"wait-on tcp:127.0.0.1:30141 && cross-env PI_WEB_DESKTOP_DEV=1 electron desktop/main.cjs\"",
+    "desktop:start": "cross-env PI_WEB_DESKTOP_DEV=0 electron desktop/main.cjs",
+    "clean:dist": "node bin/clean-dist.js",
+    "desktop:dist": "npm run clean:dist && npm run build && electron-builder",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
@@ -52,6 +56,8 @@
   },
   "devDependencies": {
     "@lobehub/icons": "^5.6.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25",
@@ -59,6 +65,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "electron": "^37.5.1",
+    "electron-builder": "^26.0.12",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "jiti": "^2.7.0",
@@ -74,6 +82,44 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "extraMetadata": {
+      "main": "desktop/main.cjs"
+    },
+    "appId": "com.agegr.piweb",
+    "productName": "Pi Web Desktop",
+    "asar": false,
+    "files": [
+      "app/**/*",
+      "bin/**/*",
+      "components/**/*",
+      "desktop/**/*",
+      "hooks/**/*",
+      "lib/**/*",
+      "public/**/*",
+      "next.config.ts",
+      "package.json",
+      ".next/**/*",
+      "!.next/cache/**/*",
+      "!.next/dev/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
   }
 }
