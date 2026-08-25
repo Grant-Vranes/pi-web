@@ -11,6 +11,10 @@
     "url": "https://github.com/agegr/pi-web/issues"
   },
   "license": "MIT",
+  "author": {
+    "name": "agegr",
+    "email": "noreply@users.noreply.github.com"
+  },
   "engines": {
     "node": ">=22.19.0"
   },
@@ -91,6 +95,7 @@
     },
     "appId": "com.agegr.piweb",
     "productName": "Pi Web Desktop",
+    "executableName": "pi-web",
     "asar": false,
     "files": [
       "app/**/*",
@@ -109,17 +114,23 @@
     "mac": {
       "target": [
         "dmg"
-      ]
+      ],
+      "icon": "public/icons/icon-512.png"
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "public/icons/icon-512.png"
     },
     "linux": {
+      "artifactName": "pi-web-${version}-${arch}.${ext}",
       "target": [
-        "AppImage"
-      ]
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "agegr <noreply@users.noreply.github.com>",
+      "icon": "public/icons/icon-512.png"
     }
   }
 }
