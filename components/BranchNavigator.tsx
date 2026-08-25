@@ -288,9 +288,8 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
 
   const branchIcon = (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: hasContent ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}>
-      <path d="M5 21V11a4 4 0 0 1 4-4h2" />
-      <path d="M13 3l4 4-4 4" />
-      <path d="M17 7H9" />
+      <path d="M4 5h10a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H8l-3 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M14 19c3 0 5-1.5 5-4" />
     </svg>
   );
 
