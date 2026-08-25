@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-npm run dev   # port 30141
+npm run dev   # default port 30141; override in .env.local
 ```
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  

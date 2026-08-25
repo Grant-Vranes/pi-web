@@ -1,7 +1,11 @@
 "use strict";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseArgs } = require("util");
+const fs = require("fs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const path = require("path");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { parseArgs, parseEnv } = require("util");
 
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 
@@ -22,7 +26,16 @@ function normalizePort(value) {
   return String(port);
 }
 
-function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
+function readProjectEnv(cwd = process.cwd()) {
+  const envPath = path.join(cwd, ".env.local");
+  if (!fs.existsSync(envPath)) {
+    return {};
+  }
+  return parseEnv(fs.readFileSync(envPath, "utf8"));
+}
+
+function parseLaunchOptions(args = process.argv.slice(2), env = process.env, { cwd = process.cwd() } = {}) {
+  const resolvedEnv = { ...readProjectEnv(cwd), ...env };
   const { values: cliArgs } = parseArgs({
     args,
     options: {
@@ -34,10 +47,10 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   });
 
   return {
-    port: normalizePort(cliArgs.port ?? env.PORT ?? "30141"),
-    hostname: cliArgs.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
-    openBrowser: !cliArgs["no-open"] && !isEnabled(env.PI_WEB_NO_OPEN),
+    port: normalizePort(cliArgs.port ?? resolvedEnv.PORT ?? "30141"),
+    hostname: cliArgs.hostname ?? resolvedEnv.PI_WEB_HOSTNAME ?? "127.0.0.1",
+    openBrowser: !cliArgs["no-open"] && !isEnabled(resolvedEnv.PI_WEB_NO_OPEN),
   };
 }
 
-module.exports = { parseLaunchOptions };
+module.exports = { parseLaunchOptions, readProjectEnv };

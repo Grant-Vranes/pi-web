@@ -48,6 +48,15 @@ For port and hostname, command-line options override the corresponding environme
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable HTTP Basic Auth; the username is always `pi` | Authentication disabled |
 
+For a persistent project-local default, copy the template and edit `PORT`:
+
+```bash
+cp .env.example .env.local
+# Edit .env.local, for example: PORT=8080
+```
+
+`.env.local` is ignored by Git and is used by `npm run dev`, `npm run desktop:dev`, `npm run start`, and `pi-web` launched from that directory. CLI options and already exported environment variables take precedence.
+
 For example:
 
 ```bash
@@ -125,7 +134,7 @@ npm install
 npm run dev
 ```
 
-The development server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141). Run the common checks with:
+The development server defaults to [http://127.0.0.1:30141](http://127.0.0.1:30141), or uses `PORT` from `.env.local` when configured. Run the common checks with:
 
 ```bash
 npm test

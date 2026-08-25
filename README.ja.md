@@ -48,6 +48,15 @@ pi-web
 | `PI_WEB_ALLOWED_HOSTS` | 追加で許可するプロキシまたはカスタムホスト名。複数指定はカンマ区切りで完全一致 | 未設定 |
 | `PI_WEB_PASSWORD` | HTTP Basic Auth を有効化。ユーザー名は常に `pi` | 認証なし |
 
+プロジェクトごとの既定値を設定するには、テンプレートをコピーして `PORT` を編集します：
+
+```bash
+cp .env.example .env.local
+# .env.local を編集。例: PORT=8080
+```
+
+`.env.local` は Git の対象外です。現在のディレクトリから実行した `npm run dev`、`npm run desktop:dev`、`npm run start`、`pi-web` が読み込みます。コマンドラインオプションと既に設定された環境変数が優先されます。
+
 例：
 
 ```bash
@@ -101,7 +110,7 @@ npm install
 npm run dev
 ```
 
-開発サーバーは [http://127.0.0.1:30141](http://127.0.0.1:30141) で動作します。一般的なチェックは次のコマンドで実行します：
+開発サーバーの既定値は [http://127.0.0.1:30141](http://127.0.0.1:30141) で、設定時は `.env.local` の `PORT` を使用します。一般的なチェックは次のコマンドで実行します：
 
 ```bash
 npm test

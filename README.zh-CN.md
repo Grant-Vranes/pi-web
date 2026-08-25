@@ -50,6 +50,15 @@ pi-web
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
 | `PI_WEB_PASSWORD` | 启用 HTTP Basic Auth，用户名固定为 `pi` | 不启用认证 |
 
+如需为当前项目固定端口，请复制模板并修改 `PORT`：
+
+```bash
+cp .env.example .env.local
+# 编辑 .env.local，例如：PORT=8080
+```
+
+`.env.local` 不会提交到 Git；从当前目录运行的 `npm run dev`、`npm run desktop:dev`、`npm run start` 和 `pi-web` 都会读取它。命令行参数和已导出的环境变量优先级更高。
+
 例如：
 
 ```bash
@@ -103,7 +112,7 @@ npm install
 npm run dev
 ```
 
-开发服务器运行在 [http://127.0.0.1:30141](http://127.0.0.1:30141)。常用检查命令：
+开发服务器默认运行在 [http://127.0.0.1:30141](http://127.0.0.1:30141)；配置后会使用 `.env.local` 中的 `PORT`。常用检查命令：
 
 ```bash
 npm test
