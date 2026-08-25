@@ -32,12 +32,12 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 30141",
-    "dev:lan": "next dev -H 0.0.0.0 -p 30141",
+    "dev": "node bin/start-dev.js --hostname 127.0.0.1",
+    "dev:lan": "node bin/start-dev.js --hostname 0.0.0.0",
     "build": "next build --webpack",
-    "start": "next start -H 127.0.0.1 -p 30141",
-    "start:lan": "next start -H 0.0.0.0 -p 30141",
-    "desktop:dev": "concurrently \"npm run dev\" \"wait-on tcp:127.0.0.1:30141 && cross-env PI_WEB_DESKTOP_DEV=1 electron desktop/main.cjs\"",
+    "start": "node bin/pi-web.js --hostname 127.0.0.1 --no-open",
+    "start:lan": "node bin/pi-web.js --hostname 0.0.0.0 --no-open",
+    "desktop:dev": "node bin/start-desktop-dev.js",
     "desktop:start": "cross-env PI_WEB_DESKTOP_DEV=0 electron desktop/main.cjs",
     "clean:dist": "node bin/clean-dist.js",
     "desktop:dist": "npm run clean:dist && npm run build && electron-builder",

@@ -7,10 +7,13 @@ const net = require("net");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { getTrayIconSize, shouldLaunchEmbeddedServer } = require("./runtime-helpers.cjs");
+const { getTrayIconSize, shouldLaunchEmbeddedServer, waitForPort } = require("./runtime-helpers.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { parseLaunchOptions } = require("../bin/pi-web-options");
 
 const HOST = "127.0.0.1";
-const PORT = Number(process.env.PORT || 30141);
+const { port: configuredPort } = parseLaunchOptions(["--hostname", HOST]);
+const PORT = Number(configuredPort);
 const URL = `http://${HOST}:${PORT}`;
 const CONTEXT_MENU_CHANNEL = "pi-web:show-session-row-contextmenu";
 const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
@@ -38,28 +41,6 @@ function isPortReachable(host, port, timeoutMs = 800) {
     socket.once("connect", () => done(true));
     socket.once("timeout", () => done(false));
     socket.once("error", () => done(false));
-  });
-}
-
-function waitForPort(host, port, timeoutMs = 45_000) {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const attempt = () => {
-      const socket = net.createConnection({ host, port });
-      socket.once("connect", () => {
-        socket.destroy();
-        resolve();
-      });
-      socket.once("error", () => {
-        socket.destroy();
-        if (Date.now() - start >= timeoutMs) {
-          reject(new Error(`Timed out waiting for ${host}:${port}`));
-          return;
-        }
-        setTimeout(attempt, 300);
-      });
-    };
-    attempt();
   });
 }
 
