@@ -1246,6 +1246,158 @@ span.token.table {
   display: none;
 }
 
+/* Project rail: a compact, always-visible workspace switcher. Its restrained
+   monochrome tiles let the status signals (blue spin / cyan pulse) do the work. */
+.project-rail {
+  width: 52px;
+  min-width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: color-mix(in srgb, var(--bg-panel) 86%, var(--bg));
+  border-right: 1px solid var(--border);
+  padding: 11px 7px 8px;
+  gap: 10px;
+}
+.project-rail-mark {
+  width: 30px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.project-rail-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 7px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1px 0;
+  scrollbar-width: none;
+}
+.project-rail-list::-webkit-scrollbar { display: none; }
+.project-rail-item,
+.project-rail-add {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+.project-rail-item:hover,
+.project-rail-add:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.project-rail-item.is-active {
+  background: var(--bg-selected);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+.project-rail-item.is-dragging {
+  opacity: 0.42;
+  border-style: dashed;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-panel));
+  transform: scale(0.9);
+}
+/* The insertion rule intentionally occupies the gap between tiles, so the
+   destination remains unambiguous even in a dense project rail. */
+.project-rail-item.is-drop-before,
+.project-rail-item.is-drop-after {
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg-panel));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  transform: scale(1.06);
+}
+.project-rail-item.is-drop-before::before,
+.project-rail-item.is-drop-after::before {
+  position: absolute;
+  z-index: 2;
+  right: 3px;
+  left: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-panel), 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: project-rail-insertion-pulse 780ms ease-in-out infinite alternate;
+  content: "";
+  pointer-events: none;
+}
+.project-rail-item.is-drop-before::before { top: -6px; }
+.project-rail-item.is-drop-after::before { bottom: -6px; }
+.project-rail-item:focus-visible,
+.project-rail-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.project-rail-monogram {
+  max-width: 28px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-rail-running,
+.project-rail-unread {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--bg-panel);
+  border-radius: 50%;
+}
+.project-rail-running {
+  border-top-color: transparent;
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
+  border-left-color: var(--accent);
+  animation: project-rail-spin 850ms linear infinite;
+}
+.project-rail-unread {
+  background: #0891b2;
+  box-shadow: 0 0 0 0 color-mix(in srgb, #0891b2 55%, transparent);
+  animation: project-rail-pulse 1.7s ease-out infinite;
+}
+.project-rail-add {
+  color: var(--text-dim);
+  border: 1px dashed color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 9px;
+}
+@keyframes project-rail-spin { to { transform: rotate(360deg); } }
+@keyframes project-rail-pulse {
+  65% { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes project-rail-insertion-pulse {
+  from { opacity: 0.58; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-rail-running,
+  .project-rail-unread,
+  .project-rail-item.is-drop-before::before,
+  .project-rail-item.is-drop-after::before { animation: none; }
+  .project-rail-item,
+  .project-rail-add { transition: none; }
+}
+
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {
@@ -1349,6 +1501,9 @@ span.token.table {
 
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
+  /* The drawer is intentionally narrow on phones; preserve its session list
+     and use the existing project picker rather than consuming 52px for a rail. */
+  .project-rail { display: none; }
   .chat-stats-center {
     display: none !important;
   }

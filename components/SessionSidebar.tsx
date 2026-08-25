@@ -137,6 +137,7 @@ interface ValidatedProject {
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const PROJECT_RAIL_STORAGE_KEY = "pi-web:project-rail-history";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 
 function loadUnreadSessionIds(): Set<string> {
@@ -159,6 +160,27 @@ function saveUnreadSessionIds(ids: Set<string>): void {
     else window.localStorage.setItem(UNREAD_SESSIONS_STORAGE_KEY, JSON.stringify([...ids]));
   } catch {
     // ignore storage quota / privacy-mode errors
+  }
+}
+
+/** Unlike session-backed projects, an opened empty directory has no JSONL file
+ * to rediscover on the next selection. Keep a small local history so it stays
+ * a first-class project in the rail. */
+function loadProjectRailHistory(): ProjectSelection[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PROJECT_RAIL_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is ProjectSelection => (
+        typeof item === "object" && item !== null
+        && typeof (item as ProjectSelection).root === "string"
+        && typeof (item as ProjectSelection).key === "string"
+      ))
+      .slice(0, 30);
+  } catch {
+    return [];
   }
 }
 
@@ -428,6 +450,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
+  const [projectRailHistory, setProjectRailHistory] = useState<ProjectSelection[]>(() => loadProjectRailHistory());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
@@ -488,6 +511,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     saveUnreadSessionIds(unreadSessionIds);
   }, [unreadSessionIds]);
+
+  useEffect(() => {
+    try {
+      if (projectRailHistory.length === 0) window.localStorage.removeItem(PROJECT_RAIL_STORAGE_KEY);
+      else window.localStorage.setItem(PROJECT_RAIL_STORAGE_KEY, JSON.stringify(projectRailHistory));
+    } catch {
+      // ignore storage quota / privacy-mode errors
+    }
+  }, [projectRailHistory]);
 
   useEffect(() => {
     let stopped = false;
@@ -923,6 +955,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const filteredSessions = selectedProject
     ? sessionsForProject(allSessions, selectedProject.key)
     : allSessions;
+
+  // Remember every project that has been selected, including directories with
+  // no session file yet. Without this, an empty project disappears as soon as
+  // the user clicks elsewhere because getRecentProjects() is session-backed.
+  // Deliberately append rather than promote: selecting a rail item must never
+  // make the project icons reshuffle underneath the pointer.
+  useEffect(() => {
+    if (!selectedProject) return;
+    setProjectRailHistory((previous) => {
+      const index = previous.findIndex((project) => project.key === selectedProject.key);
+      if (index === -1) return [...previous, selectedProject].slice(-30);
+      if (previous[index].root === selectedProject.root) return previous;
+      const next = [...previous];
+      next[index] = selectedProject;
+      return next;
+    });
+  }, [selectedProject]);
+
+  const railProjects = useMemo(() => {
+    const seen = new Set<string>();
+    // Once a project has entered the rail, its persisted order is authoritative
+    // (including explicit drag sorting). Newly discovered session projects and
+    // a just-selected empty directory are appended as safe fallbacks.
+    return [...projectRailHistory, ...recentProjects, selectedProject].filter((project): project is ProjectSelection => {
+      if (!project || seen.has(project.key)) return false;
+      seen.add(project.key);
+      return true;
+    });
+  }, [projectRailHistory, recentProjects, selectedProject]);
   const canCreateSession = Boolean(selectedCwd);
   const newSessionDisabled = !selectedCwd;
   const showWorktreeSwitcher = Boolean(
@@ -958,7 +1019,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionTree = buildSessionTree(filteredSessions);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div className="project-sidebar-shell" style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {customPathOpen && (
         <DirectoryPicker
           busy={customPathValidating}
@@ -970,6 +1031,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           onSelect={(path) => void commitCustomPath(path)}
         />
       )}
+      <ProjectRail
+        projects={railProjects}
+        selectedProjectKey={selectedProject?.key ?? null}
+        activity={projectActivity}
+        onSelect={(project) => {
+          setSelectedCwd(project.root);
+          setProjectFilter("");
+          setCustomPathOpen(false);
+          setCustomPathValue("");
+          setCustomPathError(null);
+          setDropdownOpen(false);
+        }}
+        onAddProject={() => setDropdownOpen(true)}
+        onReorder={(keys) => {
+          const byKey = new Map(railProjects.map((project) => [project.key, project]));
+          setProjectRailHistory(keys.flatMap((key) => {
+            const project = byKey.get(key);
+            return project ? [project] : [];
+          }));
+        }}
+      />
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
       {/* Header */}
       <div
         style={{
@@ -1772,7 +1855,97 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           )}
         </div>
       )}
+      </div>
     </div>
+  );
+}
+
+/** A persistent, compact workspace rail. It mirrors the dropdown's project
+ * selection state while making cross-project activity visible at a glance. */
+function ProjectRail({
+  projects,
+  selectedProjectKey,
+  activity,
+  onSelect,
+  onAddProject,
+  onReorder,
+}: {
+  projects: readonly ProjectSelection[];
+  selectedProjectKey: string | null;
+  activity: ReadonlyMap<string, { running: number; unread: number }>;
+  onSelect: (project: ProjectSelection) => void;
+  onAddProject: () => void;
+  onReorder: (keys: string[]) => void;
+}) {
+  const { t } = useI18n();
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ key: string; after: boolean } | null>(null);
+  return (
+    <nav className="project-rail" aria-label={t("sidebar.selectProject")}>
+      <div className="project-rail-mark" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h4l1.7 2H18.5A1.5 1.5 0 0 1 20 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z" />
+        </svg>
+      </div>
+      <div className="project-rail-list">
+        {projects.map((project) => {
+          const active = project.key === selectedProjectKey;
+          const state = activity.get(project.key);
+          const name = project.root.split(/[\\/]/).filter(Boolean).pop() || project.root;
+          return (
+            <button
+              key={project.key}
+              type="button"
+              className={`project-rail-item${active ? " is-active" : ""}${draggingKey === project.key ? " is-dragging" : ""}${dropTarget?.key === project.key ? (dropTarget.after ? " is-drop-after" : " is-drop-before") : ""}`}
+              draggable
+              onDragStart={(event) => {
+                setDraggingKey(project.key);
+                setDropTarget(null);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", project.key);
+              }}
+              onDragEnd={() => {
+                setDraggingKey(null);
+                setDropTarget(null);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                const rect = event.currentTarget.getBoundingClientRect();
+                setDropTarget({ key: project.key, after: event.clientY > rect.top + rect.height / 2 });
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourceKey = event.dataTransfer.getData("text/plain") || draggingKey;
+                const after = dropTarget?.key === project.key ? dropTarget.after : false;
+                setDraggingKey(null);
+                setDropTarget(null);
+                if (!sourceKey || sourceKey === project.key) return;
+                const keys = projects.map((item) => item.key);
+                const sourceIndex = keys.indexOf(sourceKey);
+                const targetIndex = keys.indexOf(project.key);
+                if (sourceIndex < 0 || targetIndex < 0) return;
+                keys.splice(sourceIndex, 1);
+                const insertionIndex = (sourceIndex < targetIndex ? targetIndex - 1 : targetIndex) + (after ? 1 : 0);
+                keys.splice(insertionIndex, 0, sourceKey);
+                onReorder(keys);
+              }}
+              onClick={() => onSelect(project)}
+              title={project.root}
+              aria-label={project.root}
+              aria-current={active ? "page" : undefined}
+            >
+              <span className="project-rail-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
+              {state?.running ? <span className="project-rail-running" title={t("sidebar.agentRunning")} /> : null}
+              {!state?.running && state?.unread ? <span className="project-rail-unread" title={t("sidebar.newSessionActivity")} /> : null}
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="project-rail-add" onClick={onAddProject} title={t("sidebar.selectProject")} aria-label={t("sidebar.selectProject")}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+      </button>
+    </nav>
   );
 }
 
