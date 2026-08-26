@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useChatFontScale, CHAT_FONT_SCALE_STEP, CHAT_FONT_SCALE_MIN } from "@/hooks/useChatFontScale";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
@@ -67,6 +68,55 @@ const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 const AGENT_PANEL_WIDTH = 420;
 
+function TopBarFontButton({
+  children,
+  label,
+  disabled,
+  onClick,
+}: {
+  children: ReactNode;
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        height: "100%",
+        width: 30,
+        padding: 0,
+        background: "none",
+        border: "none",
+        color: disabled ? "var(--text-dim)" : "var(--text-muted)",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        fontSize: 11,
+        transition: "color 0.1s, background 0.1s",
+      }}
+      onMouseEnter={(event) => {
+        if (disabled) return;
+        event.currentTarget.style.color = "var(--text)";
+        event.currentTarget.style.background = "var(--bg-hover)";
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.color = disabled ? "var(--text-dim)" : "var(--text-muted)";
+        event.currentTarget.style.background = "none";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,6 +125,7 @@ export function AppShell() {
   const themeLabelKey =
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
+  const { scale: chatFontScale, adjust: adjustChatFont, reset: resetChatFont } = useChatFontScale();
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
@@ -1496,6 +1547,64 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("tools.label")}</span>}
         </button>
+        {/* Chat font size: A- | 100% | A+  (Cmd/Ctrl +/- also works) */}
+        {!mobile && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0,
+              height: "100%",
+              flexShrink: 0,
+              borderRight: "1px solid var(--border)",
+            }}
+            title={`${translate("chat.fontSize")} · ${Math.round(chatFontScale * 100)}%`}
+          >
+            <TopBarFontButton
+              label={translate("chat.fontSmaller")}
+              disabled={chatFontScale <= CHAT_FONT_SCALE_MIN + 1e-6}
+              onClick={() => adjustChatFont(-CHAT_FONT_SCALE_STEP)}
+            >
+              <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }} aria-hidden>A</span>
+              <svg width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <line x1="2" y1="5" x2="8" y2="5" />
+              </svg>
+            </TopBarFontButton>
+            <button
+              type="button"
+              onClick={resetChatFont}
+              title={translate("chat.fontReset")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                height: "100%",
+                minWidth: 38,
+                padding: "0 8px",
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+                fontVariantNumeric: "tabular-nums",
+                fontFamily: "var(--font-mono)",
+                transition: "color 0.1s, background 0.1s",
+              }}
+              onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; event.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; event.currentTarget.style.background = "none"; }}
+            >
+              {Math.round(chatFontScale * 100)}%
+            </button>
+            <TopBarFontButton
+              label={translate("chat.fontLarger")}
+              onClick={() => adjustChatFont(CHAT_FONT_SCALE_STEP)}
+            >
+              <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }} aria-hidden>A</span>
+              <svg width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <line x1="2" y1="4" x2="8" y2="4" />
+                <line x1="5" y1="1" x2="5" y2="7" />
+              </svg>
+            </TopBarFontButton>
+          </div>
+        )}
         {mobile && renderThemeButton(true)}
         {mobile && renderLanguageButton(true)}
       </div>

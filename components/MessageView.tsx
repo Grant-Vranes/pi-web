@@ -431,15 +431,18 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   </svg>
                 </button>
                 {commandArgs && (
-                  <span style={{
-                    color: "var(--text)",
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    minWidth: 0,
-                    flex: 1,
-                  }}>
+                  <span
+                    className="chat-scaled-text"
+                    style={{
+                      color: "var(--text)",
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      minWidth: 0,
+                      flex: 1,
+                    }}
+                  >
                     {commandArgs}
                   </span>
                 )}

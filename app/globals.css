@@ -20,6 +20,7 @@
 
 :root {
   --bg: #ffffff;
+  --chat-font-scale: 1;
   --bg-panel: #f5f5f5;
   --bg-hover: #eeeeee;
   --bg-selected: #e8e8e8;
@@ -361,7 +362,7 @@ pre, code {
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
-  font-size: 14px;
+  font-size: calc(14px * var(--chat-font-scale, 1));
   line-height: 1.7;
   color: var(--text);
   word-break: break-word;
@@ -510,6 +511,11 @@ pre, code {
 }
 .markdown-body .katex {
   font-size: 1.05em;
+}
+/* User bubble plain text + command args — inline fontSize:14 is overridden
+   by the scaled CSS variable so the whole message area zooms together. */
+.chat-scaled-text {
+  font-size: calc(14px * var(--chat-font-scale, 1)) !important;
 }
 .markdown-user-message p {
   white-space: pre-wrap;
