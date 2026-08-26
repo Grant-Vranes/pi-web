@@ -3,13 +3,15 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { type SessionTreeNode } from "@/lib/session-tree";
 import type { SessionInfo } from "@/lib/types";
-import { listSessionFamilies } from "@/lib/session-family";
+import { listSessionFamilies, groupFamiliesByDay, type SessionDayGroup } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { loadCollapsedDayGroups, saveCollapsedDayGroups, hasCollapseBeenSeeded, markCollapseSeeded } from "@/lib/session-day-collapse";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
-import { formatRelativeTime } from "@/lib/i18n/format";
+import { calendarDaysAgo, formatSessionTimestamp, formatDayLabel } from "@/lib/i18n/format";
+import type { Locale } from "@/lib/i18n/types";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -375,7 +377,7 @@ function PiWebTitle() {
 }
 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -407,6 +409,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  const [collapsedDayGroups, setCollapsedDayGroups] = useState<Set<string>>(() => loadCollapsedDayGroups());
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
@@ -486,6 +489,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     saveUnreadSessionIds(unreadSessionIds);
   }, [unreadSessionIds]);
+
+  useEffect(() => {
+    saveCollapsedDayGroups(collapsedDayGroups);
+  }, [collapsedDayGroups]);
 
   useEffect(() => {
     try {
@@ -1014,6 +1021,34 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+  const sessionDayGroups = useMemo<SessionDayGroup[]>(
+    () => groupFamiliesByDay(sessionFamilies),
+    [sessionFamilies],
+  );
+
+  // 首次使用（或清空存储后）默认折叠除“今天”以外的所有分组；
+  // 一旦应用过一次就标记为已初始化，后续以用户显式选择为准，避免重新加载时覆盖。
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (hasCollapseBeenSeeded()) {
+      seededRef.current = true;
+      return;
+    }
+    if (sessionDayGroups.length === 0) return;
+    const toCollapse = new Set<string>();
+    for (const group of sessionDayGroups) {
+      if (calendarDaysAgo(group.latestModified) !== 0) toCollapse.add(group.dateKey);
+    }
+    if (toCollapse.size === 0) {
+      markCollapseSeeded();
+      seededRef.current = true;
+      return;
+    }
+    setCollapsedDayGroups(toCollapse);
+    markCollapseSeeded();
+    seededRef.current = true;
+  }, [sessionDayGroups]);
 
   return (
     <div className="project-sidebar-shell" style={{ display: "flex", height: "100%", overflow: "hidden" }}>
@@ -1717,24 +1752,38 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.map((family) => {
-          const familySessions = [family.root, ...family.subagents];
-          const displaySession = family.latestModified === family.root.modified
-            ? family.root
-            : { ...family.root, modified: family.latestModified };
+        {sessionDayGroups.map((group) => {
+          const collapsed = collapsedDayGroups.has(group.dateKey);
+          const labels = {
+            today: t("sidebar.today"),
+            daysAgo: (n: number) => t("sidebar.daysAgo", { count: n }),
+          };
+          const groupLabel = formatDayLabel(group.latestModified, locale, new Date(), labels);
           return (
-            <SessionItem
-              key={family.root.id}
-              session={displaySession}
-              isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-              isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-              isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-              onClick={() => handleSelectSessionFromList(family.root)}
+            <SessionDayGroupSection
+              key={group.dateKey}
+              group={group}
+              collapsed={collapsed}
+              label={groupLabel}
+              selectedSessionId={selectedSessionId}
+              runningSessionIds={runningSessionIds}
+              unreadSessionIds={unreadSessionIds}
+              locale={locale}
+              onSelectSession={handleSelectSessionFromList}
               onRenamed={loadSessions}
-              onDeleted={(id) => {
+              onSessionDeleted={(id) => {
                 onSessionDeleted?.(id);
                 loadSessions();
               }}
+              onToggleCollapse={() => {
+                setCollapsedDayGroups((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(group.dateKey)) next.delete(group.dateKey);
+                  else next.add(group.dateKey);
+                  return next;
+                });
+              }}
+              t={t}
             />
           );
         })}
@@ -1965,6 +2014,104 @@ function ProjectRail({
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
       </button>
     </nav>
+  );
+}
+
+function SessionDayGroupSection({
+  group,
+  collapsed,
+  label,
+  selectedSessionId,
+  runningSessionIds,
+  unreadSessionIds,
+  locale,
+  onSelectSession,
+  onRenamed,
+  onSessionDeleted,
+  onToggleCollapse,
+  t,
+}: {
+  group: SessionDayGroup;
+  collapsed: boolean;
+  label: string;
+  selectedSessionId: string | null;
+  runningSessionIds: Set<string>;
+  unreadSessionIds: Set<string>;
+  locale: Locale;
+  onSelectSession: (s: SessionInfo) => void;
+  onRenamed?: () => void;
+  onSessionDeleted?: (id: string) => void;
+  onToggleCollapse: () => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  return (
+    <div style={{ borderBottom: "1px solid var(--border)" }}>
+      <button
+        onClick={onToggleCollapse}
+        title={t(collapsed ? "sidebar.expandGroup" : "sidebar.collapseGroup")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          width: "100%",
+          padding: "6px 10px",
+          background: "none",
+          border: "none",
+          color: "var(--text-dim)",
+          cursor: "pointer",
+          textAlign: "left",
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: "0.01em",
+          transition: "color 0.12s, background 0.12s",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--bg-hover)";
+          e.currentTarget.style.color = "var(--text-muted)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "none";
+          e.currentTarget.style.color = "var(--text-dim)";
+        }}
+      >
+        <svg
+          width="9"
+          height="9"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            flexShrink: 0,
+            transform: collapsed ? "rotate(-90deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      </button>
+      {!collapsed && group.families.map((family) => {
+        const familySessions = [family.root, ...family.subagents];
+        const displaySession = family.latestModified === family.root.modified
+          ? family.root
+          : { ...family.root, modified: family.latestModified };
+        return (
+          <SessionItem
+            key={family.root.id}
+            session={displaySession}
+            isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+            isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+            isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+            onClick={() => onSelectSession(family.root)}
+            onRenamed={onRenamed}
+            onDeleted={(id) => onSessionDeleted?.(id)}
+          />
+        );
+      })}
+    </div>
   );
 }
 
@@ -2394,7 +2541,7 @@ function SessionItem({
               ) : isUnread ? (
                 <UnreadSessionIndicator />
               ) : (
-                <span title={session.modified}>{formatRelativeTime(session.modified, locale)}</span>
+                <span title={session.modified}>{formatSessionTimestamp(session.modified, locale)}</span>
               )}
               <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
               {session.isWorktree && session.branch && (
