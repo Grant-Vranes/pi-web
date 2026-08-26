@@ -124,6 +124,50 @@ npm run lint
 
 日常开发时不要运行 `next build` 或 `npm run build`。它们会写入 `.next/`，可能干扰开发服务器；仅在发布流程中执行构建。
 
+## 桌面端（Electron）
+
+仓库在 `desktop/` 下包含一个 Electron 封装，用于在本地启动 Pi Web，并提供托盘/后台行为以及原生的会话行右键菜单集成。
+
+### 桌面端调试模式
+
+```bash
+npm run desktop:dev
+```
+
+同时运行 Web 开发服务器和 Electron。Electron 连接到 `127.0.0.1:30141`，在开发模式下复用该外部服务器。
+
+### 基于生产 Web 资源运行桌面端
+
+```bash
+npm run build
+npm run desktop:start
+```
+
+`desktop:start` 启动 Electron 并从 `bin/pi-web.js` 启动内嵌的 `pi-web`（若同端口已有运行中的服务器则复用）。
+
+### 打包安装程序
+
+```bash
+npm run desktop:dist
+```
+
+执行 `npm run build` 并通过 `electron-builder` 打包安装程序。
+默认目标：
+
+- macOS：`dmg`
+- Windows：`nsis`
+- Linux：`AppImage`
+
+构建产物输出在 `dist/` 下。
+
+> **Linux 提示：** `electron-builder` 的 `fpm` 步骤在压缩为 `.deb` 之前，会将解包后的应用复制到系统临时目录。如果 `/tmp` 是较小的 tmpfs（Linux 上很常见），该复制可能以 `Disk quota exceeded (Errno::EDQUOT)` 失败。将临时目录重定向到磁盘上的路径即可避免：
+>
+> ```bash
+> TMPDIR=$(pwd)/.build-tmp npm run desktop:dist
+> ```
+>
+> `.build-tmp/` 已在 `.gitignore` 中忽略。
+
 贡献者文档：[国际化](./docs/i18n.md)和[发布流程](./docs/release.md)。
 
 ## 仓库结构

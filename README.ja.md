@@ -122,6 +122,50 @@ npm run lint
 
 通常の開発中は `next build` または `npm run build` を実行しないでください。`.next/` に書き込まれ、開発サーバーに影響する可能性があります。ビルドはリリース作業時にのみ実行してください。
 
+## デスクトップ（Electron）
+
+このリポジトリには `desktop/` に Electron ラッパーが含まれており、Pi Web をローカルで起動し、トレイ・バックグラウンド挙動とネイティブのセッション行コンテキストメニュー連携を追加します。
+
+### デスクトップのデバッグモード
+
+```bash
+npm run desktop:dev
+```
+
+Web 開発サーバーと Electron を同時に起動します。Electron は `127.0.0.1:30141` に接続し、開発モードではその外部サーバーを再利用します。
+
+### 本番 Web アセットに対してデスクトップアプリを起動
+
+```bash
+npm run build
+npm run desktop:start
+```
+
+`desktop:start` は Electron を起動し、`bin/pi-web.js` から組み込みの `pi-web` を開始します（同じポートで既に実行中のサーバーがあれば再利用します）。
+
+### インストーラーをパッケージ化
+
+```bash
+npm run desktop:dist
+```
+
+`npm run build` を実行し、`electron-builder` でインストーラーをパッケージ化します。
+既定のターゲット:
+
+- macOS: `dmg`
+- Windows: `nsis`
+- Linux: `AppImage`
+
+ビルド成果物は `dist/` 以下に出力されます。
+
+> **Linux のヒント:** `electron-builder` の `fpm` ステップは、`.deb` に圧縮する前に展開済みアプリをシステムの一時ディレクトリへコピーします。`/tmp` が小容量の tmpfs の場合（Linux では一般的）、このコピーが `Disk quota exceeded (Errno::EDQUOT)` で失敗することがあります。一時ディレクトリをディスク上のパスに変更して回避してください:
+>
+> ```bash
+> TMPDIR=$(pwd)/.build-tmp npm run desktop:dist
+> ```
+>
+> `.build-tmp/` は既に `.gitignore` に含まれています。
+
 コントリビューター向けガイド：[Internationalization](./docs/i18n.md) と [Release process](./docs/release.md)。
 
 ## リポジトリ構成

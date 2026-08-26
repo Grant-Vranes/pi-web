@@ -183,6 +183,18 @@ Default targets:
 
 Build artifacts are written under `dist/`.
 
+> **Linux tip:** `electron-builder`'s `fpm` step copies the unpacked app
+> into the system temp directory before compressing it into a `.deb`. If
+> `/tmp` is a small tmpfs (common on Linux), the copy can fail with
+> `Disk quota exceeded (Errno::EDQUOT)`. Redirect the temp directory to a
+> disk-backed path to avoid this:
+>
+> ```bash
+> TMPDIR=$(pwd)/.build-tmp npm run desktop:dist
+> ```
+>
+> `.build-tmp/` is already in `.gitignore`.
+
 Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
 
 ## Repository Layout
