@@ -43,6 +43,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .factory
-
 # package
 dist/
+
+e2e_*.mjs
