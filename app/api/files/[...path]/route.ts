@@ -25,6 +25,8 @@ import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
   validateUploadFileNames,
+  writeUploadFiles,
+  type UploadFileInput,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { samePath } from "@/lib/paths";
@@ -191,47 +193,18 @@ export async function POST(
       }, { status: 409 });
     }
 
-    const conflictSet = new Set(inspection.conflicts);
-    const nonReplaceableSet = new Set(inspection.nonReplaceable);
-    const uploaded: string[] = [];
-    const skipped: string[] = [];
-    const errors: Array<{ name: string; error: string }> = [];
-
+    const inputs: UploadFileInput[] = [];
+    const readErrors: Array<{ name: string; error: string }> = [];
     for (const file of files) {
-      const destination = path.join(directory, file.name);
-      if (conflictSet.has(file.name) && strategy === "skip") {
-        skipped.push(file.name);
-        continue;
-      }
-      if (conflictSet.has(file.name) && nonReplaceableSet.has(file.name)) {
-        errors.push({ name: file.name, error: "Cannot replace a directory or symbolic link" });
-        continue;
-      }
-
-      let bytes: Buffer;
       try {
-        bytes = Buffer.from(await file.arrayBuffer());
+        const bytes = Buffer.from(await file.arrayBuffer());
+        inputs.push({ name: file.name, bytes });
       } catch (error) {
-        errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
-        continue;
-      }
-
-      if (conflictSet.has(file.name)) {
-        try {
-          fs.unlinkSync(destination);
-        } catch (error) {
-          errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
-          continue;
-        }
-      }
-
-      try {
-        fs.writeFileSync(destination, bytes, { flag: "wx" });
-        uploaded.push(file.name);
-      } catch (error) {
-        errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
+        readErrors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
       }
     }
+    const { uploaded, skipped, errors: writeErrors } = writeUploadFiles(directory, inputs, inspection, strategy);
+    const errors = [...readErrors, ...writeErrors];
 
     return NextResponse.json(
       { uploaded, skipped, errors },
