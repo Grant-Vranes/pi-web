@@ -1,5 +1,11 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
+
+contextBridge.exposeInMainWorld("piDesktop", {
+  getPathForFile(file) {
+    return webUtils.getPathForFile(file);
+  },
+});
 
 const CONTEXT_MENU_CHANNEL = "pi-web:show-session-row-contextmenu";
 const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
