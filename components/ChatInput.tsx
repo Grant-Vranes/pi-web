@@ -27,6 +27,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { WorktreeSwitcher } from "./WorktreeSwitcher";
+import type { WorktreeState } from "@/lib/worktree-types";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -53,6 +55,14 @@ interface Props {
   onModelChange?: (provider: string, modelId: string) => void;
   modelSwitching?: boolean;
   currentBranch?: string | null;
+  /** Full worktree state for the active project; when present and at a repo
+   *  top level, the chat-input bar renders an interactive WorktreeSwitcher
+   *  instead of the read-only branch label. */
+  worktreeState?: WorktreeState | null;
+  currentWorktreePath?: string | null;
+  homeDir?: string;
+  /** Switch/create/remove worktrees from the chat input bar. */
+  onCwdChange?: (cwd: string) => void;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -436,7 +446,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching, currentBranch,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching, currentBranch, worktreeState, currentWorktreePath, homeDir, onCwdChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -2111,7 +2121,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               />
             )}
 
-            {currentBranch && (
+            {worktreeState && onCwdChange ? (
+              <WorktreeSwitcher
+                worktreeState={worktreeState}
+                currentWorktreePath={currentWorktreePath ?? null}
+                homeDir={homeDir}
+                onWorktreeChange={onCwdChange}
+                compact
+                style={{ marginLeft: 4, maxWidth: isMobile ? 160 : 220 }}
+              />
+            ) : currentBranch && (
               <div
                 title={currentBranch}
                 style={{

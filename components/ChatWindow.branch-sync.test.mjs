@@ -4,10 +4,15 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
-test("fetches current branch for active cwd and passes it to ChatInput", () => {
+test("fetches worktree state for active cwd and passes branch/switcher data to ChatInput", () => {
   assert.match(source, /fetch\(`\/api\/worktrees\?cwd=\$\{encodeURIComponent\(activeCwd\)\}`/);
-  assert.match(source, /setCurrentBranch\(d\.currentBranch \?\? null\)/);
-  assert.match(source, /<ChatInput[\s\S]*?currentBranch=\{currentBranch\}/);
+  // ChatWindow now loads the full worktree payload (not just currentBranch)
+  // and stores it in a WorktreeState, so the chat-input bar can render an
+  // interactive WorktreeSwitcher that matches the sidebar.
+  assert.match(source, /setWorktreeState\(/);
+  assert.match(source, /currentBranch=\{currentBranch\}/);
+  assert.match(source, /worktreeState=\{showWorktreeSwitcher \? worktreeState : null\}/);
+  assert.match(source, /onCwdChange=\{handleWorktreeSwitch\}/);
 });
 
 test("refreshes branch on visibility, focus, online, and visible polling", () => {

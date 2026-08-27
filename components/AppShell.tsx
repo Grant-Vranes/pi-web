@@ -2386,6 +2386,7 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               onOpenSession={handleOpenSession}
+              onCwdChange={handleCwdChange}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}

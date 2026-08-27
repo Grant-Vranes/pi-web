@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
+import type { WorktreeState } from "@/lib/worktree-types";
 import {
   captureScrollDistance,
   getPromptAnchorSpacerHeight,
@@ -46,6 +47,10 @@ interface Props {
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
   onOpenSession?: (sessionId: string) => void;
+  /** Called when the user switches/creates/removes a worktree from the chat
+   *  input bar — AppShell forwards it to handleCwdChange so the chat remounts
+   *  (or stays, same project) just like the sidebar switcher. */
+  onCwdChange?: (cwd: string, projectRoot?: string | null, projectKey?: string | null) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
   soundEnabled?: boolean;
@@ -253,7 +258,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onCwdChange, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -302,12 +307,37 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
-  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
+  const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
+  const [homeDir, setHomeDir] = useState<string>("");
   const activeCwd = session?.cwd ?? newSessionCwd ?? null;
+  const currentWorktreePath = worktreeState?.forCwd === activeCwd ? (worktreeState.currentWorktreePath ?? null) : null;
+  // Branch label for the active checkout, used when the switcher is hidden
+  // (e.g. the cwd is a repo subdirectory). Derived from the worktree list so
+  // it stays in sync with the server-resolved current checkout.
+  const currentBranch = (() => {
+    if (!worktreeState || worktreeState.forCwd !== activeCwd) return null;
+    const wt = worktreeState.worktrees.find((w) => w.path === worktreeState.currentWorktreePath);
+    return wt?.branch ?? null;
+  })();
+  // The switcher only renders at a repo top level (matches the sidebar rule):
+  // subdir sessions keep their own project identity.
+  const showWorktreeSwitcher = Boolean(
+    worktreeState?.isGit
+    && worktreeState.isTopLevel
+    && worktreeState.forCwd === activeCwd
+  );
+
+  // Fetch the user's home dir once for ~-prefixed path display.
+  useEffect(() => {
+    if (homeDir) return;
+    fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
+      if (d.home) setHomeDir(d.home);
+    }).catch(() => {});
+  }, [homeDir]);
 
   useEffect(() => {
     if (!activeCwd) {
-      setCurrentBranch(null);
+      setWorktreeState(null);
       return;
     }
 
@@ -317,11 +347,32 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       try {
         const response = await fetch(`/api/worktrees?cwd=${encodeURIComponent(activeCwd)}`);
         if (!response.ok) return;
-        const d = await response.json() as { currentBranch?: string | null };
+        const d = await response.json() as {
+          projectRoot?: string;
+          projectKey?: string;
+          isGit?: boolean;
+          isTopLevel?: boolean;
+          currentWorktreePath?: string | null;
+          currentBranch?: string | null;
+          worktrees?: WorktreeState["worktrees"];
+          error?: string;
+        };
         if (cancelled) return;
-        setCurrentBranch(d.currentBranch ?? null);
+        if (d.error || !d.projectRoot) {
+          setWorktreeState(null);
+          return;
+        }
+        setWorktreeState({
+          forCwd: activeCwd,
+          projectRoot: d.projectRoot,
+          projectKey: d.projectKey ?? d.projectRoot,
+          isGit: d.isGit ?? false,
+          isTopLevel: d.isTopLevel ?? false,
+          currentWorktreePath: d.currentWorktreePath ?? null,
+          worktrees: d.worktrees ?? [],
+        });
       } catch {
-        if (!cancelled) setCurrentBranch(null);
+        if (cancelled) setWorktreeState(null);
       }
     };
 
@@ -352,6 +403,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       window.removeEventListener("online", handleWindowRefresh);
     };
   }, [activeCwd]);
+
+  // The chat-input worktree switcher drives the same cwd change flow as the
+  // sidebar: forward to AppShell (which remounts the chat when the project
+  // changes), then refresh this view's worktree data for the new cwd.
+  const handleWorktreeSwitch = useCallback((nextCwd: string) => {
+    if (!nextCwd) return;
+    onCwdChange?.(nextCwd, worktreeState?.projectRoot, worktreeState?.projectKey);
+  }, [onCwdChange, worktreeState]);
 
   useEffect(() => {
     if (
@@ -624,6 +683,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       onModelChange={handleModelChange}
       modelSwitching={modelSwitching}
       currentBranch={currentBranch}
+      worktreeState={showWorktreeSwitcher ? worktreeState : null}
+      currentWorktreePath={currentWorktreePath}
+      homeDir={homeDir}
+      onCwdChange={handleWorktreeSwitch}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
