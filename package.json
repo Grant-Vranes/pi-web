@@ -118,13 +118,13 @@
       "target": [
         "dmg"
       ],
-      "icon": "public/icons/icon-512.png"
+      "icon": "public/icons/icon-white-512.png"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "public/icons/icon-512.png"
+      "icon": "public/icons/icon-white-512.png"
     },
     "linux": {
       "artifactName": "pi-web-${version}-${arch}.${ext}",
@@ -133,7 +133,7 @@
         "deb"
       ],
       "maintainer": "agegr <noreply@users.noreply.github.com>",
-      "icon": "public/icons/icon-512.png"
+      "icon": "public/icons/icon-white-512.png"
     }
   }
 }

@@ -45,7 +45,7 @@ function isPortReachable(host, port, timeoutMs = 800) {
 }
 
 function getTrayIconPath() {
-  return path.join(app.getAppPath(), "public", "icons", "icon-192.png");
+  return path.join(app.getAppPath(), "public", "icons", "icon-white-192.png");
 }
 
 function showMainWindow() {
