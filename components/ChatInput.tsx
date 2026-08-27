@@ -63,6 +63,10 @@ interface Props {
   homeDir?: string;
   /** Switch/create/remove worktrees from the chat input bar. */
   onCwdChange?: (cwd: string) => void;
+  /** When true, the worktree switcher is intentionally hidden because the
+   *  active session's cwd is already fixed. The read-only branch label shows
+   *  a tooltip explaining how to switch/create worktrees instead. */
+  worktreeSwitcherLocked?: boolean;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -446,7 +450,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching, currentBranch, worktreeState, currentWorktreePath, homeDir, onCwdChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching, currentBranch, worktreeState, currentWorktreePath, homeDir, onCwdChange, worktreeSwitcherLocked,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -2132,7 +2136,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               />
             ) : currentBranch && (
               <div
-                title={currentBranch}
+                title={worktreeSwitcherLocked ? t("sidebar.worktreeLockedTitle") : currentBranch}
                 style={{
                   display: "flex",
                   alignItems: "center",

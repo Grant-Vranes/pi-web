@@ -326,6 +326,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     && worktreeState.isTopLevel
     && worktreeState.forCwd === activeCwd
   );
+  // A session's cwd is fixed once the first message is sent, so switching or
+  // creating worktrees from an already-started session would only move the
+  // sidebar cursor without affecting the live runtime. Lock the switcher in
+  // that case and point the user at a fresh session instead.
+  const worktreeSwitcherLocked = Boolean(session) && messages.length > 0;
 
   // Fetch the user's home dir once for ~-prefixed path display.
   useEffect(() => {
@@ -683,7 +688,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       onModelChange={handleModelChange}
       modelSwitching={modelSwitching}
       currentBranch={currentBranch}
-      worktreeState={showWorktreeSwitcher ? worktreeState : null}
+      worktreeState={showWorktreeSwitcher && !worktreeSwitcherLocked ? worktreeState : null}
+      worktreeSwitcherLocked={worktreeSwitcherLocked}
       currentWorktreePath={currentWorktreePath}
       homeDir={homeDir}
       onCwdChange={handleWorktreeSwitch}

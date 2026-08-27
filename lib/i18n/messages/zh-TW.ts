@@ -199,6 +199,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.noMatchingWorktrees": "找不到相符的 worktree",
     "sidebar.switchWorktree": "切換 worktree",
     "sidebar.switchWorktreeTitle": "切換 worktree：{path}",
+    "sidebar.worktreeLockedTitle": "目前工作階段已開始，worktree 已鎖定。请新增工作階段中切換或建立 worktree。",
     "sidebar.main": "主分支",
     "sidebar.forceRemoveCheckout": "有未提交的變更。要強制移除 checkout 嗎？",
     "sidebar.force": "強制移除",

@@ -199,6 +199,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.noMatchingWorktrees": "No matching worktrees",
     "sidebar.switchWorktree": "Switch worktree",
     "sidebar.switchWorktreeTitle": "Switch worktree: {path}",
+    "sidebar.worktreeLockedTitle": "Worktree is locked for an active session. Create or switch to a worktree in a new session.",
     "sidebar.main": "main",
     "sidebar.forceRemoveCheckout": "Uncommitted changes. Force remove checkout?",
     "sidebar.force": "Force",

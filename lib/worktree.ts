@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, realpathSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync, readFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
@@ -68,16 +68,19 @@ function realPathOrSelf(filePath: string): string {
   }
 }
 
+/** Directory inside the repo where worktrees are placed. */
+const WORKTREES_DIR_NAME = ".worktrees";
+
 /**
- * addWorktree() places worktrees in `<repoRoot>-worktrees/<dir>`. When such a
+ * addWorktree() places worktrees in `<repoRoot>/.worktrees/<dir>`. When such a
  * directory no longer exists (worktree removed), group its sessions back
  * under the main repo instead of letting them dangle as a phantom project.
  * The dir name is the sanitized branch name — close enough for display.
  */
 function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   const parent = dirname(cwd);
-  if (!parent.endsWith("-worktrees")) return null;
-  const repoRoot = parent.slice(0, -"-worktrees".length);
+  if (basename(parent) !== WORKTREES_DIR_NAME) return null;
+  const repoRoot = dirname(parent);
   if (!repoRoot || !existsSync(join(repoRoot, ".git"))) return null;
   return { projectRoot: realPathOrSelf(repoRoot), branch: basename(cwd), isWorktree: true, isTopLevel: true };
 }
@@ -190,6 +193,32 @@ function sanitizeBranchForDir(branch: string): string {
   return branch.replace(/[\/\\:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+/**
+ * Ensure `entry` (e.g. `.worktrees/`) is ignored by the repo's .gitignore so
+ * worktrees placed inside the checkout don't dirty the main working tree.
+ * Idempotent: appends only when the pattern isn't already present. Best-effort
+ * — a parse failure or read-only checkout just skips, since `git worktree add`
+ * itself doesn't require the path to be ignored.
+ */
+function ensureGitignored(repoRoot: string, entry: string): void {
+  const gitignorePath = join(repoRoot, ".gitignore");
+  let existing = "";
+  try {
+    existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
+  } catch {
+    return;
+  }
+  // Match the pattern on its own line, ignoring leading whitespace.
+  const lineRegex = new RegExp(`^\\s*${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`, "m");
+  if (lineRegex.test(existing)) return;
+  const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
+  try {
+    appendFileSync(gitignorePath, `${prefix}${entry}\n`, "utf8");
+  } catch {
+    /* read-only checkout or permission issue — non-fatal */
+  }
+}
+
 export async function addWorktree(cwd: string, branch: string): Promise<{ path: string; branch: string }> {
   const trimmed = branch.trim();
   if (!trimmed) throw new Error("Branch name is required");
@@ -198,12 +227,13 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
   if (!dirName) throw new Error(`Invalid branch name: ${branch}`);
 
   const repoRoot = await getRepoRoot(cwd);
-  const baseDir = `${resolve(repoRoot)}-worktrees`;
+  const baseDir = join(resolve(repoRoot), WORKTREES_DIR_NAME);
   const worktreePath = join(baseDir, dirName);
   if (existsSync(worktreePath)) {
     throw new Error(`Directory already exists: ${worktreePath}`);
   }
   mkdirSync(baseDir, { recursive: true });
+  ensureGitignored(repoRoot, `${WORKTREES_DIR_NAME}/`);
 
   // Reuse the branch if it already exists, otherwise create it at HEAD.
   let branchExists = false;
