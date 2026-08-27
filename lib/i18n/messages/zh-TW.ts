@@ -264,6 +264,8 @@ export const zhTWLocale: LocalePlugin = {
     "files.cancel": "取消",
     "files.checking": "正在檢查檔案",
     "files.uploading": "正在上傳，{progress}%",
+    "files.dropToUpload": "拖放以上傳到 {name}",
+    "files.tooLarge": "以下檔案超出大小限制（單個 25 MB，總計 100 MB）：{files}",
     "chat.loadingSession": "正在載入工作階段...",
     "chat.runningTool": "正在執行工具...",
     "chat.generatingToolInput": "正在產生參數...",
