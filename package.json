@@ -40,7 +40,7 @@
     "desktop:dev": "node bin/start-desktop-dev.js",
     "desktop:start": "cross-env PI_WEB_DESKTOP_DEV=0 electron desktop/main.cjs",
     "clean:dist": "node bin/clean-dist.js",
-    "desktop:dist": "npm run clean:dist && npm run build && electron-builder",
+    "desktop:dist": "npm run clean:dist && npm run build && electron-builder --publish never",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"

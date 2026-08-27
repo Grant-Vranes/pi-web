@@ -30,10 +30,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22.19.0"
           cache: npm
@@ -63,7 +63,8 @@ jobs:
       - name: Build & package desktop app
         run: npm run desktop:dist
         env:
-          # electron-builder reads these for code signing; safe to omit for unsigned builds.
+          # electron-builder is run with --publish never (see package.json desktop:dist);
+          # release creation and asset upload are handled by the Release step below.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
