@@ -100,6 +100,7 @@ export interface ChatInputHandle {
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  insertPathMentions: (mentions: string) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
 }
@@ -692,6 +693,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    insertPathMentions(mentions: string) {
+      if (!mentions) return;
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? start;
+      const before = ta.value.slice(0, start);
+      const after = ta.value.slice(end);
+      const sep = before && !/\s$/.test(before) ? " " : "";
+      const newVal = before + sep + mentions + after;
+      const pos = start + sep.length + mentions.length;
+      valueRef.current = newVal;
+      setValue(newVal);
+      setAtQuery(null);
+      requestAnimationFrame(() => {
+        const current = textareaRef.current;
+        if (!current) return;
+        current.focus();
+        current.setSelectionRange(pos, pos);
+        current.style.height = "auto";
+        current.style.height = `${Math.min(current.scrollHeight, 200)}px`;
+      });
     },
   }));
 

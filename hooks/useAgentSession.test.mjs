@@ -500,6 +500,10 @@ test("uses the prompt anchor as the only trailing message spacer", () => {
   assert.doesNotMatch(chatWindowSource, /new ResizeObserver\(updateBottomComposerHeight\)/);
 });
 
+test("exposes the existing notice enqueue action for component UI failures", () => {
+  assert.match(source, /setNoticePaused: setPausedNoticeId,\s*addNotice,/);
+});
+
 test("keeps a detached viewport in place when streaming completes", () => {
   const scrollEffectSource = source.slice(
     source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
