@@ -345,6 +345,16 @@ test("moves a provisional new-session draft to the real session key", () => {
   clearDraft(sessionKey);
 });
 
+test("exposes a caret-preserving path mention insertion handle", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /insertPathMentions: \(mentions: string\) => void;/);
+  assert.match(source, /insertPathMentions\(mentions: string\) \{/);
+  assert.match(source, /const newVal = before \+ sep \+ mentions \+ after;/);
+  assert.match(source, /current\.setSelectionRange\(pos, pos\);/);
+});
+
 test("rekey keeps a synchronously restored draft when React state is still empty", () => {
   const provisionalKey = "new:/tmp/rekey-race";
   const sessionKey = "session-rekey-race";

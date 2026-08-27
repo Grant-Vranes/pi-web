@@ -1,24 +1,28 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { buildDropPayload, type DropPayload } from "@/lib/dropped-paths";
 
-export function useDragDrop(onDrop: (files: File[]) => void) {
+export function useDragDrop(onDrop: (payload: DropPayload) => void) {
   const [isDragOver, setIsDragOver] = useState(false);
   const counterRef = useRef(0);
 
+  const acceptsDrop = useCallback((dataTransfer: DataTransfer) => {
+    const payload = buildDropPayload(dataTransfer);
+    return payload.imageFiles.length > 0 || payload.hasNonImageFiles;
+  }, []);
+
   const handleDragEnter = useCallback((e: React.DragEvent) => {
-    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
-    if (!hasImages) return;
+    if (!acceptsDrop(e.dataTransfer)) return;
     e.preventDefault();
     counterRef.current += 1;
     setIsDragOver(true);
-  }, []);
+  }, [acceptsDrop]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
-    if (!hasImages) return;
+    if (!acceptsDrop(e.dataTransfer)) return;
     e.preventDefault();
-  }, []);
+  }, [acceptsDrop]);
 
   const handleDragLeave = useCallback(() => {
     counterRef.current -= 1;
@@ -29,11 +33,12 @@ export function useDragDrop(onDrop: (files: File[]) => void) {
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
+    const payload = buildDropPayload(e.dataTransfer);
+    if (payload.imageFiles.length === 0 && !payload.hasNonImageFiles) return;
     e.preventDefault();
     counterRef.current = 0;
     setIsDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    onDrop(files);
+    onDrop(payload);
   }, [onDrop]);
 
   return { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop };
