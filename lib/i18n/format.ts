@@ -77,26 +77,33 @@ export function calendarDaysAgo(date: Date | string, now = new Date()): number {
 }
 
 /**
- * 会话时间戳显示规则：≤3 天用相对时间，超过 3 天用本地化短日期。
+ * 会话时间戳显示规则：今天用相对时间，一天及更早用带秒的本地化日期时间。
  * @param date 会话修改时间
  * @param locale 当前语言
  * @param now 用于测试或特殊场景的当前时间
  */
 export function formatSessionTimestamp(date: Date | string, locale: Locale, now = new Date()): string {
   const days = calendarDaysAgo(date, now);
-  if (days >= 0 && days <= RELATIVE_DAY_LIMIT) {
+  if (days >= 0 && days < TIMESTAMP_ABSOLUTE_DAY_LIMIT) {
     return formatRelativeTime(date, locale, now);
   }
   return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   }).format(date instanceof Date ? date : new Date(date));
 }
 
+/** 今天之后开始使用绝对日期时间的阈值（按本地日历日计）。 */
+const TIMESTAMP_ABSOLUTE_DAY_LIMIT = 1;
+
 /**
  * 会话按天分组的标题文本：今天/昨天/N天前/具体日期。
- * 与 {@link formatSessionTimestamp} 共享相同的 ≤3 天阈值。
+ * 注意：分组标题仍沿用 ≤3 天的相对文案阈值，与会话项时间戳 {@link formatSessionTimestamp} 的阈值不同。
  * @param date 组内任一会话的时间（通常为最新修改时间）
  * @param locale 当前语言
  * @param now 用于测试或特殊场景的当前时间
