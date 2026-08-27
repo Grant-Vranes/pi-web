@@ -199,7 +199,17 @@ export function WorktreeSwitcher({ worktreeState, currentWorktreePath, homeDir, 
   );
 
   return (
-    <div ref={containerRef} style={{ position: "relative", ...style }}>
+    <div
+      ref={containerRef}
+      style={{
+        position: "relative",
+        // In the sidebar this is a full row. Make that explicit rather than
+        // relying on the block-flex shrink-to-fit behavior of the button.
+        width: compact ? undefined : "100%",
+        minWidth: 0,
+        ...style,
+      }}
+    >
       <button
         onClick={() => setDropdownOpen((v) => !v)}
         title={triggerTitle}
@@ -221,7 +231,8 @@ export function WorktreeSwitcher({ worktreeState, currentWorktreePath, homeDir, 
           textAlign: "left",
           whiteSpace: "nowrap",
           minWidth: 0,
-          maxWidth: compact ? (undefined) : "100%",
+          width: compact ? undefined : "100%",
+          maxWidth: compact ? undefined : "100%",
           boxSizing: "border-box",
         }}
       >

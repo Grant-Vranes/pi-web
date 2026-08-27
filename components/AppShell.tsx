@@ -2073,7 +2073,11 @@ export function AppShell() {
             />
           )}
           {/* Top panel dropdown — shared, only one active at a time */}
-          {activeTopPanel && topPanelPos && (
+          {/* BranchNavigator owns its menu. Rendering this otherwise-empty
+              shared panel for branches creates a transparent fixed overlay
+              above the branch rows, making the switcher look broken and
+              intercepting its clicks. */}
+          {activeTopPanel && activeTopPanel !== "branches" && topPanelPos && (
             <div style={{
               position: "fixed",
               top: topPanelPos.top,

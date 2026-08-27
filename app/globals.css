@@ -1258,6 +1258,161 @@ span.token.table {
   display: none;
 }
 
+/* Sidebar hierarchy: workspace, conversations, and project files have separate
+   visual rhythms so the dense left rail is scannable at a glance. */
+.sidebar-workspace-section {
+  flex-shrink: 0;
+  margin: 5px 4px 3px;
+  padding: 11px 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--bg-panel) 58%, var(--bg)), color-mix(in srgb, var(--bg-panel) 58%, var(--bg))) padding-box,
+    linear-gradient(120deg, color-mix(in srgb, var(--accent) 48%, var(--border)), color-mix(in srgb, var(--accent-hover) 26%, var(--border)) 46%, var(--border) 100%) border-box;
+}
+/* The gradient lives in the border itself: it separates modules while keeping
+   the sidebar light rather than adding visually heavy solid cards. */
+.sidebar-brand-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  min-height: 22px;
+  margin: 0 2px 10px;
+}
+.sidebar-module-kicker,
+.sidebar-section-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.sidebar-module-kicker { color: var(--text-dim); }
+.sidebar-section-heading,
+.sidebar-explorer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 7px 0 10px;
+  background: var(--bg);
+}
+.sidebar-conversations-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 3px 4px 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background:
+    linear-gradient(var(--bg), var(--bg)) padding-box,
+    linear-gradient(100deg, color-mix(in srgb, var(--accent) 44%, var(--border)), color-mix(in srgb, var(--accent-hover) 25%, var(--border)) 54%, var(--border)) border-box;
+}
+.sidebar-conversations-section .sidebar-section-heading {
+  flex-shrink: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 17%, var(--border));
+}
+.sidebar-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.sidebar-section-marker {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.sidebar-section-count {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.sidebar-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sidebar-new-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 27px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  color: var(--accent);
+  font: 600 11px/1 var(--font-mono);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.sidebar-new-session:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg));
+}
+.sidebar-new-session:disabled { color: var(--text-dim); cursor: not-allowed; opacity: 0.66; }
+.sidebar-conversations-list { background: var(--bg); }
+/* Session records use hairline gradient rules rather than boxed rows, retaining
+   density while making individual conversations easier to parse. */
+.sidebar-session-day-group,
+.sidebar-session-record {
+  position: relative;
+}
+.sidebar-session-day-group::after,
+.sidebar-session-record::after {
+  position: absolute;
+  right: 9px;
+  bottom: 0;
+  left: 14px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--accent) 19%, var(--border)) 16%, color-mix(in srgb, var(--accent-hover) 14%, var(--border)) 52%, color-mix(in srgb, var(--accent) 15%, var(--border)) 84%, transparent 100%);
+  content: "";
+  pointer-events: none;
+}
+/* Give every record its own clearly visible gradient rule. The group rule is
+   intentionally softer, acting only as a date-section boundary. */
+.sidebar-session-record::after {
+  height: 1px;
+  opacity: 0.72;
+}
+.sidebar-session-day-group::after { left: 0; right: 0; opacity: 0.56; }
+.sidebar-explorer-section {
+  margin: 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background:
+    linear-gradient(var(--bg-panel), var(--bg-panel)) padding-box,
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 42%, var(--border)), color-mix(in srgb, var(--accent-hover) 23%, var(--border)) 50%, var(--border)) border-box;
+}
+.sidebar-explorer-heading {
+  min-height: 39px;
+  background: color-mix(in srgb, var(--bg-panel) 82%, var(--bg));
+}
+.sidebar-explorer-toggle {
+  position: relative;
+}
+.sidebar-explorer-toggle::after {
+  width: 5px;
+  height: 5px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  content: "";
+}
+
 /* Project rail: a compact, always-visible workspace switcher. Its restrained
    monochrome tiles let the status signals (blue spin / cyan pulse) do the work. */
 .project-rail {

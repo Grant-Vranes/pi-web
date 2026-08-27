@@ -989,95 +989,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }}
       />
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
-      {/* Header */}
-      <div
-        style={{
-          padding: "12px 10px 10px",
-          borderBottom: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+      {/* Workspace module */}
+      <div className="sidebar-workspace-section">
+        <div className="sidebar-brand-row">
           <PiWebTitle />
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={handleNewSession}
-              disabled={newSessionDisabled}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                color: canCreateSession ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: canCreateSession ? "pointer" : "not-allowed",
-                height: 32,
-                paddingLeft: 10,
-                paddingRight: 12,
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 500,
-                letterSpacing: "-0.01em",
-                flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
-              }}
-              title={canCreateSession ? t("sidebar.newSessionTitle", { path: selectedCwd ?? "" }) : t("sidebar.selectProject")}
-              onMouseEnter={(e) => {
-                if (!canCreateSession) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = canCreateSession ? "var(--text-muted)" : "var(--text-dim)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <line x1="6" y1="1" x2="6" y2="11" />
-                <line x1="1" y1="6" x2="11" y2="6" />
-              </svg>
-              {t("sidebar.new")}
-            </button>
-            <button
-              onClick={() => loadSessions(false, true)}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
-                border: `1px solid ${sessionRefreshDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
-                color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)",
-                cursor: "pointer",
-                width: 32, height: 32,
-                borderRadius: 7,
-                padding: 0,
-                flexShrink: 0,
-                transition: "background 0.3s, color 0.3s, border-color 0.3s",
-              }}
-              onMouseEnter={(e) => {
-                if (sessionRefreshDone) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                if (sessionRefreshDone) return;
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-               title={t("sidebar.refresh")}
-            >
-              {sessionRefreshDone ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-              )}
-            </button>
-          </div>
+          <span className="sidebar-module-kicker">{t("sidebar.workspace")}</span>
         </div>
 
         {/* CWD picker */}
@@ -1339,8 +1255,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
       </div>
 
-      {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      {/* Conversations module */}
+      <div
+        className="sidebar-conversations-section"
+        style={{
+          flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
+          minHeight: 80,
+        }}
+      >
+      <div className="sidebar-section-heading">
+        <div className="sidebar-section-title">
+          <span className="sidebar-section-marker" aria-hidden="true" />
+          <span>{t("sidebar.conversations")}</span>
+          {sessionFamilies.length > 0 && <span className="sidebar-section-count">{sessionFamilies.length}</span>}
+        </div>
+        <div className="sidebar-section-actions">
+          <button
+            className="sidebar-new-session"
+            onClick={handleNewSession}
+            disabled={newSessionDisabled}
+            title={canCreateSession ? t("sidebar.newSessionTitle", { path: selectedCwd ?? "" }) : t("sidebar.selectProject")}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="6" y1="1" x2="6" y2="11" /><line x1="1" y1="6" x2="11" y2="6" /></svg>
+            {t("sidebar.new")}
+          </button>
+          <ToolbarIconButton
+            onClick={() => loadSessions(false, true)}
+            title={t("sidebar.refresh")}
+            skipHover={sessionRefreshDone}
+            color={sessionRefreshDone ? "#4ade80" : "var(--text-dim)"}
+            background={sessionRefreshDone ? "rgba(74,222,128,0.15)" : "none"}
+          >
+            {sessionRefreshDone ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>}
+          </ToolbarIconButton>
+        </div>
+      </div>
+      <div className="sidebar-conversations-list" style={{ flex: "1 1 auto", overflowY: "auto", padding: "0", minHeight: 0 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.loading")}
@@ -1392,12 +1342,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           );
         })}
       </div>
+      </div>
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
+          className="sidebar-explorer-section"
           style={{
-            borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
             flex: explorerOpen ? "1 1 0" : "0 0 auto",
@@ -1405,8 +1356,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             overflow: "hidden",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+          <div className="sidebar-explorer-heading">
             <button
+              className="sidebar-explorer-toggle"
               onClick={() => setExplorerOpen((open) => {
                 const next = !open;
                 saveExplorerOpen(next);
@@ -1417,7 +1369,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 alignItems: "center",
                 gap: 6,
                 flex: 1,
-                padding: "6px 10px",
+                padding: "8px 10px",
                 background: "none",
                 border: "none",
                 color: "var(--text-muted)",
@@ -1649,7 +1601,7 @@ function SessionDayGroupSection({
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
   return (
-    <div style={{ borderBottom: "1px solid var(--border)" }}>
+    <div className="sidebar-session-day-group">
       <button
         onClick={onToggleCollapse}
         title={t(collapsed ? "sidebar.expandGroup" : "sidebar.collapseGroup")}
@@ -2023,6 +1975,7 @@ function SessionItem({
 
   return (
     <div
+      className="sidebar-session-record"
       onClick={confirmDelete || renaming ? undefined : onClick}
       onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
       onMouseEnter={() => setHovered(true)}

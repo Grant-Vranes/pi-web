@@ -22,6 +22,8 @@ interface Props {
   compact?: boolean;
   /** Keep the inline dropdown mounted while another control supplies its trigger */
   hideInlineButton?: boolean;
+  /** Desktop dropdown width, normally matched to the sidebar project picker. */
+  inlineDropdownWidth?: number;
 }
 
 // Find the visible entry IDs on the path from root to activeLeafId.
@@ -253,7 +255,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact, hideInlineButton }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact, hideInlineButton, inlineDropdownWidth }: Props) {
   const { t } = useI18n();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -262,7 +264,11 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
 
   useEffect(() => {
     if (!open || !inline) return;
-    const anchor = containerRef?.current ?? btnRef.current;
+    // Anchor to the trigger button itself so the dropdown aligns under it and
+    // matches its width — same behavior as the sidebar project picker. Only
+    // fall back to the container ref when the button is hidden (mobile mode),
+    // where there is no button rect to measure.
+    const anchor = hideInlineButton ? (containerRef?.current ?? btnRef.current) : btnRef.current;
     if (!anchor) return;
     const update = () => {
       const rect = anchor.getBoundingClientRect();
@@ -272,7 +278,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
     const ro = new ResizeObserver(update);
     ro.observe(anchor);
     return () => ro.disconnect();
-  }, [open, inline, containerRef]);
+  }, [open, inline, containerRef, hideInlineButton]);
 
   const activePathIds = useMemo(
     () => buildActivePath(tree, activeLeafId),
@@ -281,7 +287,11 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
 
   const handleSelect = useCallback((id: string) => {
     onLeafChange(id);
-  }, [onLeafChange]);
+    // A branch selection changes the visible conversation. Close this popover
+    // immediately so it cannot remain above the freshly rendered chat.
+    if (onToggle) onToggle();
+    else setOpenInternal(false);
+  }, [onLeafChange, onToggle]);
 
   const noBranchReason = !hasSession
     ? t("i18n.noActiveSession")
@@ -344,13 +354,18 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
             position: "fixed",
             top: dropdownPos.top,
             left: dropdownPos.left,
-            width: dropdownPos.width,
+            // A trigger-sized desktop menu leaves no room for its tree rows.
+            // Keep it readable while retaining the full-width mobile drawer.
+            width: hideInlineButton ? dropdownPos.width : Math.max(280, inlineDropdownWidth ?? dropdownPos.width),
+            maxWidth: "calc(100vw - 16px)",
             background: "var(--bg-panel)",
-            borderBottom: "1px solid var(--border)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
+            borderRadius: 8,
             zIndex: 500,
           }}>
             {hasContent ? (
-              <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
+              <div style={{ padding: "4px 8px 8px 8px", maxHeight: 260, overflowY: "auto" }}>
                 {topLevel.map((child, idx) => (
                   <TreeNodeView
                     key={child.entry.id}
