@@ -1455,22 +1455,27 @@ span.token.table {
   width: 36px;
   height: 36px;
   flex: 0 0 36px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: 10px;
-  background: transparent;
+  background: color-mix(in srgb, var(--bg-hover) 58%, var(--bg-panel));
   color: var(--text-muted);
   cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
-.project-rail-item:hover,
+.project-rail-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-hover));
+  color: var(--text);
+  transform: translateY(-1px);
+}
 .project-rail-add:hover {
   background: var(--bg-hover);
   color: var(--text);
   transform: translateY(-1px);
 }
 .project-rail-item.is-active {
-  background: var(--bg-selected);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-selected));
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
   color: var(--accent);
 }
 .project-rail-item.is-dragging {
