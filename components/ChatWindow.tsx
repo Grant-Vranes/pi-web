@@ -372,7 +372,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           worktrees: d.worktrees ?? [],
         });
       } catch {
-        if (cancelled) setWorktreeState(null);
+        if (!cancelled) setWorktreeState(null);
       }
     };
 
