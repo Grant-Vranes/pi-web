@@ -14,6 +14,7 @@ import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
+import { collectDroppedUploadEntries, type DroppedUploadEntry } from "@/lib/drop-collect";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -73,10 +74,13 @@ interface UploadSummary {
 }
 
 interface PendingConflict {
-  files: File[];
+  entries: DroppedUploadEntry[];
   conflicts: string[];
   nonReplaceable: string[];
 }
+
+const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 
 async function fetchEntries(dirPath: string): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
@@ -150,15 +154,17 @@ function GitStatusBadge({ status, t }: { status: GitFileStatus; t: Translate }) 
   );
 }
 
-function uploadFiles(
+function uploadEntries(
   targetDirectory: string,
-  files: File[],
+  entries: DroppedUploadEntry[],
   strategy: UploadConflictStrategy,
   onProgress: (progress: number) => void,
 ): Promise<{ status: number; data: UploadResponse }> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
-    files.forEach((file) => formData.append("files", file, file.name));
+    for (const entry of entries) {
+      formData.append("files", entry.file, entry.relativePath);
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.open(
@@ -552,6 +558,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [isDropTarget, setIsDropTarget] = useState(false);
+  const dropCounterRef = useRef(0);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
   const hasSearchQuery = searchQuery.trim().length > 0;
@@ -664,8 +672,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     }
   }, [cwd]);
 
-  const performUpload = useCallback(async (
-    files: File[],
+  const performUploadEntries = useCallback(async (
+    entries: DroppedUploadEntry[],
     strategy: UploadConflictStrategy,
   ) => {
     setPendingConflict(null);
@@ -674,10 +682,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setUploadPhase("uploading");
 
     try {
-      const { status, data } = await uploadFiles(cwd, files, strategy, setUploadProgress);
+      const { status, data } = await uploadEntries(cwd, entries, strategy, setUploadProgress);
       if (status === 409 && data.conflicts?.length) {
         setPendingConflict({
-          files,
+          entries,
           conflicts: data.conflicts,
           nonReplaceable: data.nonReplaceable ?? [],
         });
@@ -695,13 +703,27 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     }
   }, [applyUploadResult, cwd]);
 
-  const prepareUpload = useCallback(async (files: File[]) => {
-    if (files.length === 0 || uploadBusy) return;
+  const prepareUploadEntries = useCallback(async (entries: DroppedUploadEntry[]) => {
+    if (entries.length === 0 || uploadBusy) return;
     setUploadSummary(null);
     setHighlightedPaths(new Set());
     setPendingConflict(null);
     setUploadError(null);
     setUploadProgress(0);
+
+    // Frontend size pre-check.
+    const tooLarge: string[] = [];
+    let total = 0;
+    for (const entry of entries) {
+      total += entry.file.size;
+      if (entry.file.size > MAX_UPLOAD_FILE_BYTES) tooLarge.push(entry.relativePath);
+    }
+    if (tooLarge.length > 0 || total > MAX_UPLOAD_TOTAL_BYTES) {
+      const offenders = tooLarge.length > 0 ? tooLarge : entries.map((e) => e.relativePath);
+      setUploadError(t("files.tooLarge", { files: offenders.join(", ") }));
+      return;
+    }
+
     setUploadPhase("checking");
 
     try {
@@ -710,7 +732,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileNames: files.map((file) => file.name) }),
+          body: JSON.stringify({ fileNames: entries.map((entry) => entry.relativePath) }),
         },
       );
       const data = await res.json().catch(() => ({})) as UploadResponse;
@@ -718,26 +740,27 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
       if (data.conflicts?.length) {
         setPendingConflict({
-          files,
+          entries,
           conflicts: data.conflicts,
           nonReplaceable: data.nonReplaceable ?? [],
         });
         return;
       }
 
-      await performUpload(files, "error");
+      await performUploadEntries(entries, "error");
     } catch (uploadFailure) {
       setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
-  }, [cwd, performUpload, uploadBusy]);
+  }, [cwd, performUploadEntries, uploadBusy, t]);
 
   const handleUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    void prepareUpload(files);
-  }, [prepareUpload]);
+    const entries: DroppedUploadEntry[] = files.map((file) => ({ file, relativePath: file.name }));
+    void prepareUploadEntries(entries);
+  }, [prepareUploadEntries]);
 
   useImperativeHandle(ref, () => ({
     openUploadPicker() {
@@ -807,8 +830,74 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     );
   }, [cwd, onAtMentions, uploadSummary]);
 
+  const acceptsUploadDrop = useCallback((dataTransfer: DataTransfer | null) => {
+    if (!dataTransfer) return false;
+    const items = Array.from(dataTransfer.items ?? []);
+    return items.some((item) => item.kind === "file");
+  }, []);
+
+  const handleDragEnter = useCallback((event: React.DragEvent) => {
+    if (!acceptsUploadDrop(event.dataTransfer)) return;
+    event.preventDefault();
+    dropCounterRef.current += 1;
+    setIsDropTarget(true);
+  }, [acceptsUploadDrop]);
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    if (!acceptsUploadDrop(event.dataTransfer)) return;
+    event.preventDefault();
+  }, [acceptsUploadDrop]);
+
+  const handleDragLeave = useCallback(() => {
+    dropCounterRef.current -= 1;
+    if (dropCounterRef.current <= 0) {
+      dropCounterRef.current = 0;
+      setIsDropTarget(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback(async (event: React.DragEvent) => {
+    if (!acceptsUploadDrop(event.dataTransfer)) return;
+    event.preventDefault();
+    dropCounterRef.current = 0;
+    setIsDropTarget(false);
+    const { entries } = await collectDroppedUploadEntries(event.dataTransfer);
+    void prepareUploadEntries(entries);
+  }, [acceptsUploadDrop, prepareUploadEntries]);
+
+  const cwdName = useMemo(() => {
+    const parts = cwd.replace(/[/\\]+$/, "").split(/[/\\]/);
+    return parts.filter(Boolean).pop() ?? cwd;
+  }, [cwd]);
+
   return (
-    <div style={{ minHeight: "100%" }}>
+    <div
+      style={{ minHeight: "100%", position: "relative" }}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDropTarget && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+            border: "2px dashed var(--border)",
+            borderRadius: 6,
+          }}
+        >
+          <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>
+            {t("files.dropToUpload", { name: cwdName })}
+          </span>
+        </div>
+      )}
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
@@ -847,10 +936,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               </div>
             )}
             <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUploadEntries(pendingConflict.entries, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
                 {t("files.replace")}
               </button>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUploadEntries(pendingConflict.entries, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
                 {t("files.skipExisting")}
               </button>
               <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>
