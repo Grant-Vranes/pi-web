@@ -19,14 +19,6 @@ import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
 
-declare global {
-  interface Window {
-    piDesktop?: {
-      selectDirectory: () => Promise<string | null>;
-    };
-  }
-}
-
 function ToolbarIconButton({
   onClick,
   title,
