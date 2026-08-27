@@ -23,11 +23,23 @@ export function validateUploadFileNames(fileNames: string[]): string | null {
 
   const seen = new Set<string>();
   for (const fileName of fileNames) {
-    if (!fileName || fileName === "." || fileName === ".." || fileName.includes("\0")) {
+    if (!fileName || fileName.includes("\0")) {
       return `Invalid file name: ${fileName || "(empty)"}`;
     }
-    if (fileName.includes("/") || fileName.includes("\\") || path.basename(fileName) !== fileName) {
-      return `File names must not contain a path: ${fileName}`;
+    if (fileName.includes("\\")) {
+      return `File names must not contain backslashes: ${fileName}`;
+    }
+    if (fileName.startsWith("/")) {
+      return `File names must not be absolute paths: ${fileName}`;
+    }
+    if (/^[A-Za-z]:[\\/]/.test(fileName)) {
+      return `File names must not be absolute paths: ${fileName}`;
+    }
+    const segments = fileName.split("/");
+    for (const segment of segments) {
+      if (segment === "" || segment === "." || segment === "..") {
+        return `File names must not contain a path: ${fileName}`;
+      }
     }
     if (seen.has(fileName)) return `Duplicate file name in upload: ${fileName}`;
     seen.add(fileName);
