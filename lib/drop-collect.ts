@@ -8,46 +8,42 @@ export interface CollectedDrop {
   unsupported: boolean;
 }
 
-interface FakeFileEntryLike {
+interface FileEntryLike {
   name: string;
   isFile: true;
   isDirectory: false;
-  file(): Promise<File>;
+  file(success: (f: File) => void, error?: (e: Error) => void): void;
 }
 
-interface FakeDirEntryLike {
+interface DirectoryEntryLike {
   name: string;
   isFile: false;
   isDirectory: true;
-  createReader(): { readEntries(cb: (entries: unknown[]) => void): void };
+  createReader(): { readEntries(success: (entries: unknown[]) => void, error?: (e: Error) => void): void };
 }
 
-type AnyEntry = FakeFileEntryLike | FakeDirEntryLike;
+type AnyEntry = FileEntryLike | DirectoryEntryLike;
 
-function isFileEntry(entry: AnyEntry | null | undefined): entry is FakeFileEntryLike {
+function isFileEntry(entry: AnyEntry | null | undefined): entry is FileEntryLike {
   return !!entry && entry.isFile === true && entry.isDirectory === false;
 }
 
-function isDirEntry(entry: AnyEntry | null | undefined): entry is FakeDirEntryLike {
+function isDirEntry(entry: AnyEntry | null | undefined): entry is DirectoryEntryLike {
   return !!entry && entry.isFile === false && entry.isDirectory === true;
 }
 
-function readAllEntries(reader: { readEntries(cb: (entries: unknown[]) => void): void }): Promise<unknown[]> {
+function readAllEntries(reader: { readEntries(success: (entries: unknown[]) => void, error?: (e: Error) => void): void }): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const acc: unknown[] = [];
     const step = () => {
-      try {
-        reader.readEntries((batch) => {
-          if (batch.length === 0) {
-            resolve(acc);
-          } else {
-            acc.push(...batch);
-            step();
-          }
-        });
-      } catch (error) {
-        reject(error);
-      }
+      reader.readEntries((batch) => {
+        if (batch.length === 0) {
+          resolve(acc);
+        } else {
+          acc.push(...batch);
+          step();
+        }
+      }, reject);
     };
     step();
   });
@@ -56,7 +52,9 @@ function readAllEntries(reader: { readEntries(cb: (entries: unknown[]) => void):
 async function collectEntry(entry: AnyEntry, prefix: string, out: DroppedUploadEntry[]): Promise<void> {
   const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
   if (isFileEntry(entry)) {
-    const file = await entry.file();
+    const file = await new Promise<File>((resolve, reject) => {
+      entry.file(resolve, reject);
+    });
     out.push({ file, relativePath });
     return;
   }
