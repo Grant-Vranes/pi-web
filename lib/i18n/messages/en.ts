@@ -264,6 +264,8 @@ export const enLocale: LocalePlugin = {
     "files.cancel": "Cancel",
     "files.checking": "Checking files",
     "files.uploading": "Uploading, {progress}%",
+    "files.dropToUpload": "Drop to upload into {name}",
+    "files.tooLarge": "These files exceed the size limit (25 MB each, 100 MB total): {files}",
     "chat.loadingSession": "Loading session...",
     "chat.runningTool": "Running tool...",
     "chat.generatingToolInput": "Generating parameters...",
