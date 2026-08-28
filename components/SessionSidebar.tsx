@@ -971,7 +971,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           setCustomPathError(null);
           setDropdownOpen(false);
         }}
-        onAddProject={() => setDropdownOpen(true)}
+        onAddProject={handleCustomPathClick}
         onReorder={(keys) => {
           const byKey = new Map(railProjects.map((project) => [project.key, project]));
           setProjectRailHistory(keys.flatMap((key) => {
