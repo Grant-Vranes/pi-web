@@ -51,6 +51,27 @@ function pathEntryExists(target: string): boolean {
   }
 }
 
+function nearestExistingAncestor(target: string, allowedRoots: Set<string>): string | null {
+  // Walk up from target to find the first existing ancestor that is still
+  // lexically within an allowed root, probing each candidate with lstat
+  // (which does not follow the final component). Used to canonically
+  // authorize before probing a leaf whose path may traverse an allowed-root
+  // symlink that escapes the root — lstat follows intermediate symlinks, so
+  // we must authorize the nearest existing ancestor first. Stops at the
+  // lexical root boundary so a root path's tmp-directory parent is never
+  // evaluated.
+  const resolver = resolverFor(target);
+  let current = target;
+  for (let depth = 0; depth < 64; depth++) {
+    const parent = resolver.dirname(current);
+    if (parent === current) return null; // filesystem root
+    if (!isFilePathAllowed(parent, allowedRoots)) return null; // walked out of lexical root
+    if (pathEntryExists(parent)) return parent;
+    current = parent;
+  }
+  return null;
+}
+
 function assertLexicallyAllowed(target: string, allowedRoots: Set<string>): void {
   if (!isFilePathAllowed(target, allowedRoots)) {
     throw new FileMutationError(403, "Access denied");
@@ -58,12 +79,24 @@ function assertLexicallyAllowed(target: string, allowedRoots: Set<string>): void
 }
 
 function assertExistingAllowed(target: string, allowedRoots: Set<string>): void {
-  // Authorize before observing the filesystem so outside-root paths cannot be
-  // used as an existence oracle.
+  // Authorize before observing the leaf so outside-root paths cannot be used
+  // as an existence oracle. Canonically authorize the nearest existing
+  // ancestor first: an allowed-root symlink whose target escapes the root
+  // must return 403 regardless of whether the leaf exists, so we never reveal
+  // existence through such a symlink. lstat follows intermediate symlinks, so
+  // authorizing the ancestor (which resolves through realpath) catches escapes
+  // before any leaf probe.
   assertLexicallyAllowed(target, allowedRoots);
+  const ancestor = nearestExistingAncestor(target, allowedRoots);
+  if (ancestor !== null && !isExistingFilePathAllowed(ancestor, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
   if (!pathEntryExists(target)) {
     throw new FileMutationError(404, "File or directory not found");
   }
+  // The leaf itself must also resolve within an allowed root (covers a direct
+  // symlink whose target is outside the root, where the ancestor is legitimately
+  // inside but the leaf escapes).
   if (!isExistingFilePathAllowed(target, allowedRoots)) {
     throw new FileMutationError(403, "Access denied");
   }
@@ -73,6 +106,13 @@ function assertParentAllowed(target: string, allowedRoots: Set<string>): void {
   const parent = resolverFor(target).dirname(target);
   assertLexicallyAllowed(target, allowedRoots);
   assertLexicallyAllowed(parent, allowedRoots);
+  // Canonically authorize the nearest existing ancestor before probing the
+  // parent, so an allowed-root symlink escaping the root cannot leak
+  // outside-root existence via lstat following intermediate symlinks.
+  const ancestor = nearestExistingAncestor(parent, allowedRoots);
+  if (ancestor !== null && !isExistingFilePathAllowed(ancestor, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
   if (!pathEntryExists(parent)) {
     throw new FileMutationError(404, "Parent directory not found");
   }
@@ -129,10 +169,15 @@ function executeMutation(
 
   if (mutation.type === "delete") {
     assertLexicallyAllowed(mutation.sourcePath, allowedRoots);
+    // Canonically authorize the existing parent before lstat of the leaf, so
+    // an allowed-root symlink escaping the root cannot be used to probe
+    // outside-root existence (lstat follows intermediate symlinks).
+    const sourceParent = resolverFor(mutation.sourcePath).dirname(mutation.sourcePath);
+    assertExistingAllowed(sourceParent, allowedRoots);
     const sourceStat = fs.lstatSync(mutation.sourcePath);
     if (sourceStat.isSymbolicLink()) {
-      const sourceParent = resolverFor(mutation.sourcePath).dirname(mutation.sourcePath);
-      assertExistingAllowed(sourceParent, allowedRoots);
+      // Direct symlink: delete the link itself, not its target. The parent
+      // was canonically authorized above; the leaf is removed non-recursively.
     } else if (!isExistingFilePathAllowed(mutation.sourcePath, allowedRoots)) {
       throw new FileMutationError(403, "Access denied");
     }

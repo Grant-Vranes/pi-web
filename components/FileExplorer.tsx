@@ -146,10 +146,13 @@ async function requestFileMutation(
     || typeof data !== "object"
     || !("sourcePath" in data)
     || typeof data.sourcePath !== "string"
+    || data.sourcePath.trim().length === 0
     || !("deleted" in data)
     || typeof data.deleted !== "boolean"
     || ((type === "rename" || type === "move")
-      && (!("destinationPath" in data) || typeof data.destinationPath !== "string"))
+      && (!("destinationPath" in data)
+        || typeof data.destinationPath !== "string"
+        || data.destinationPath.trim().length === 0))
   ) {
     throw new FileMutationRequestError();
   }

@@ -44,3 +44,12 @@ test("name dialog handles Escape from the form and associates its label", () => 
   assert.match(dialogForm, /<label htmlFor="file-mutation-name"/);
   assert.match(dialogForm, /<input id="file-mutation-name"/);
 });
+
+test("rejects malformed success responses with empty or whitespace paths", () => {
+  const validationBlock = source.slice(
+    source.indexOf("if (\n    !data"),
+    source.indexOf("return data as MutationResponse;"),
+  );
+  assert.match(validationBlock, /data\.sourcePath\.trim\(\)\.length === 0/);
+  assert.match(validationBlock, /data\.destinationPath\.trim\(\)\.length === 0/);
+});
