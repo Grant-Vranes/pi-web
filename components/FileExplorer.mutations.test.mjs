@@ -11,31 +11,30 @@ test("explorer nodes expose a native contextual mutation menu", () => {
   assert.match(source, /role="menu"/);
 });
 
-test("destructive and move controls enforce the agreed safeguards", () => {
+test("destructive and drag-move controls enforce the agreed safeguards", () => {
   assert.match(source, /window\.confirm\(/);
-  assert.match(source, /source\.isDir && isPathWithin\(destinationDirectory, source\.fullPath\)/);
   assert.match(source, /dataTransfer\.setData\("application\/x-pi-web-file-path", node\.fullPath\)/);
   assert.match(source, /onFileMutation\?\.\(\{ kind: "delete", sourcePath: target\.fullPath \}\)/);
+  // Drag-move rejects dropping a folder onto itself or a descendant.
+  assert.match(source, /sameFilePath\(target\.fullPath, sourcePath\) \|\| \(sourceIsDir && isPathWithin\(target\.fullPath, sourcePath\)\)/);
 });
 
-test("move picker discards stale and out-of-cwd directory listings", () => {
-  assert.match(source, /moveDirectoryRequestRef\.current \+= 1/);
-  assert.match(source, /requestId !== moveDirectoryRequestRef\.current/);
-  assert.match(source, /isPathWithin\(entry\.fullPath, cwd\)/);
-  assert.match(source, /setMoveDirectories\(\[\]\)/);
+test("the contextual menu no longer offers a move-to picker", () => {
+  assert.doesNotMatch(source, /openMovePicker/);
+  assert.doesNotMatch(source, /files\.moveTo/);
+  assert.doesNotMatch(source, /files\.selectDestination/);
 });
 
-test("mutation errors remain available inside active dialogs", () => {
+test("mutation errors remain available inside the active name dialog", () => {
   assert.match(source, /pendingMutation && mutationError && \(\s*<div role="alert"/);
-  assert.match(source, /moveSource && mutationError && \(\s*<div role="alert"/);
   assert.doesNotMatch(source, /fetchEntries\([^)]*\)\.then\(/);
 });
 
 test("context menu actions are disabled during mutations", () => {
   const menuSection = source.slice(source.indexOf("{contextMenu && ("), source.indexOf("{pendingMutation && ("));
-  // The shared create-file/create-directory button plus rename, move, and delete
-  // cover all five rendered menu actions.
-  assert.equal((menuSection.match(/disabled=\{mutationBusy\}/g) ?? []).length, 4);
+  // The shared create-file/create-directory button plus rename and delete
+  // cover the four rendered menu actions (move is drag-only now).
+  assert.equal((menuSection.match(/disabled=\{mutationBusy\}/g) ?? []).length, 3);
 });
 
 test("name dialog handles Escape from the form and associates its label", () => {

@@ -402,15 +402,15 @@ function TreeNode({
           event.preventDefault(); event.stopPropagation();
           event.dataTransfer.dropEffect = isInternal ? "move" : "copy";
         } : undefined}
-        onDragLeave={node.isDir && (onFolderDrop || onInternalFolderDrop) ? () => {
-          folderDropCounterRef.current -= 1;
-          if (folderDropCounterRef.current <= 0) { folderDropCounterRef.current = 0; setIsDropOver(false); }
-        } : undefined}
         onDrop={node.isDir && (onFolderDrop || onInternalFolderDrop) ? (event) => {
           const sourcePath = event.dataTransfer.getData(INTERNAL_FILE_DRAG_TYPE);
           if (sourcePath) { event.preventDefault(); event.stopPropagation(); setIsDropOver(false); folderDropCounterRef.current = 0; onInternalFolderDrop?.(node, sourcePath, event.dataTransfer.getData(INTERNAL_DIRECTORY_DRAG_TYPE) === "true"); return; }
           if (!Array.from(event.dataTransfer.items ?? []).some((item) => item.kind === "file")) return;
           setIsDropOver(false); folderDropCounterRef.current = 0; onFolderDrop?.(node.fullPath, event);
+        } : undefined}
+        onDragLeave={node.isDir && (onFolderDrop || onInternalFolderDrop) ? () => {
+          folderDropCounterRef.current -= 1;
+          if (folderDropCounterRef.current <= 0) { folderDropCounterRef.current = 0; setIsDropOver(false); }
         } : undefined}
         style={{
           position: "relative",
@@ -684,13 +684,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [contextMenu, setContextMenu] = useState<{ target: FileNode; x: number; y: number; isRoot: boolean } | null>(null);
   const [pendingMutation, setPendingMutation] = useState<ExplorerMutation | null>(null);
   const [mutationName, setMutationName] = useState("");
-  const [moveSource, setMoveSource] = useState<FileNode | null>(null);
-  const [moveDirectory, setMoveDirectory] = useState(cwd);
-  const [moveDirectories, setMoveDirectories] = useState<FileNode[]>([]);
   const [mutationBusy, setMutationBusy] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const mutationRequestRef = useRef(0);
-  const moveDirectoryRequestRef = useRef(0);
   const dropCounterRef = useRef(0);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
@@ -801,7 +797,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
   const finishMutation = useCallback(() => {
     setTreeRefreshKey((key) => key + 1);
-    setContextMenu(null); setPendingMutation(null); setMoveSource(null); setMutationError(null);
+    setContextMenu(null); setPendingMutation(null); setMutationError(null);
   }, []);
 
   const executeMutation = useCallback(async (type: ExplorerMutationType, target: FileNode, body: Record<string, string> = {}) => {
@@ -826,40 +822,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       if (requestId === mutationRequestRef.current) setMutationBusy(false);
     }
   }, [finishMutation, onFileMutation, t]);
-
-  const loadMoveDirectories = useCallback(async (directoryPath: string) => {
-    const requestId = moveDirectoryRequestRef.current += 1;
-    setMutationError(null);
-    if (!isPathWithin(directoryPath, cwd)) {
-      setMoveDirectories([]);
-      setMutationError(t("files.operationFailed"));
-      return;
-    }
-
-    try {
-      const entries = await fetchEntries(directoryPath);
-      if (requestId !== moveDirectoryRequestRef.current || !isPathWithin(directoryPath, cwd)) return;
-      setMoveDirectory(directoryPath);
-      setMoveDirectories(entries.filter((entry) => entry.isDir && isPathWithin(entry.fullPath, cwd)));
-    } catch (cause) {
-      if (requestId !== moveDirectoryRequestRef.current) return;
-      setMoveDirectories([]);
-      setMutationError(cause instanceof Error ? cause.message : t("files.operationFailed"));
-    }
-  }, [cwd, t]);
-
-  const openMovePicker = useCallback((source: FileNode) => {
-    moveDirectoryRequestRef.current += 1;
-    setContextMenu(null);
-    setPendingMutation(null);
-    setMutationName("");
-    setMoveSource(null);
-    setMoveDirectory(cwd);
-    setMoveDirectories([]);
-    setMutationError(null);
-    setMoveSource(source);
-    void loadMoveDirectories(cwd);
-  }, [cwd, loadMoveDirectories]);
 
   const handleInternalFolderDrop = useCallback((target: FileNode, sourcePath: string, sourceIsDir: boolean) => {
     if (sameFilePath(target.fullPath, sourcePath) || (sourceIsDir && isPathWithin(target.fullPath, sourcePath))) return;
@@ -1004,13 +966,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setPendingConflict(null);
       setUploadError(null);
       mutationRequestRef.current += 1;
-      moveDirectoryRequestRef.current += 1;
       setContextMenu(null);
       setPendingMutation(null);
       setMutationName("");
-      setMoveSource(null);
-      setMoveDirectory(cwd);
-      setMoveDirectories([]);
       setMutationBusy(false);
       setMutationError(null);
     }
@@ -1390,7 +1348,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           )}
         </div>
       )}
-      {mutationError && !pendingMutation && !moveSource && (
+      {mutationError && !pendingMutation && (
         <div role="alert" style={{ padding: "6px 8px", color: "#f87171", fontSize: 11 }}>
           {mutationError}
           <DismissButton onClick={() => setMutationError(null)} title={t("files.dismissOperationError")} />
@@ -1403,7 +1361,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           )))}
           {!contextMenu.isRoot && <>
             <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => { setPendingMutation({ type: "rename", target: contextMenu.target }); setMutationName(contextMenu.target.name); setContextMenu(null); }} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "var(--text)", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.rename")}</button>
-            <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => openMovePicker(contextMenu.target)} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "var(--text)", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.moveTo")}</button>
             <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => { const target = contextMenu.target; const confirmKey = target.isDir ? "files.confirmDeleteDirectory" : "files.confirmDelete"; if (window.confirm(t(confirmKey, { name: target.name }))) void executeMutation("delete", target); }} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "#f87171", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.delete")}</button>
           </>}
         </div>
@@ -1418,23 +1375,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setPendingMutation(null)} disabled={mutationBusy}>{t("i18n.cancel")}</button><button type="submit" disabled={mutationBusy || !mutationName.trim()}>{pendingMutation.type === "rename" ? t("files.rename") : t("files.create")}</button></div>
           </form>
-        </div>
-      )}
-      {moveSource && (
-        <div role="dialog" aria-modal="true" aria-label={t("files.selectDestination")} style={{ position: "fixed", inset: 0, zIndex: 31, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.35)" }}>
-          <div style={{ width: 360, maxHeight: "70dvh", overflow: "auto", padding: 16, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)" }}>
-            <div style={{ marginBottom: 8, color: "var(--text)", fontSize: 13 }}>{t("files.selectDestination")}</div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-              <button type="button" onClick={() => void loadMoveDirectories(cwd)} style={{ flex: 1, padding: 6, border: 0, background: sameFilePath(moveDirectory, cwd) ? "var(--bg-hover)" : "none", color: "var(--text)", textAlign: "left" }}>{cwdName}</button>
-              <button type="button" disabled={sameFilePath(moveDirectory, cwd)} onClick={() => { const parent = getFileDirectory(moveDirectory); if (!isPathWithin(parent, cwd)) return; void loadMoveDirectories(parent); }} aria-label={t("directoryPicker.goToParent")} style={{ padding: "6px 8px" }}>↑</button>
-            </div>
-            {moveDirectories.filter((directory) => isPathWithin(directory.fullPath, cwd)).map((directory) => <button key={directory.fullPath} type="button" disabled={moveSource.isDir && isPathWithin(directory.fullPath, moveSource.fullPath)} onClick={() => { if (!isPathWithin(directory.fullPath, cwd)) return; void loadMoveDirectories(directory.fullPath); }} style={{ display: "block", width: "100%", padding: 6, border: 0, background: "none", color: "var(--text)", textAlign: "left" }}>{directory.name}</button>)}
-            {moveSource.isDir && isPathWithin(moveDirectory, moveSource.fullPath) && <div style={{ color: "#f87171", fontSize: 11 }}>{t("files.invalidMoveTarget")}</div>}
-            {moveSource && mutationError && (
-              <div role="alert" style={{ marginTop: 8, color: "#f87171", fontSize: 11 }}>{mutationError}</div>
-            )}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setMoveSource(null)} disabled={mutationBusy}>{t("i18n.cancel")}</button><button type="button" disabled={mutationBusy || !isPathWithin(moveDirectory, cwd) || sameFilePath(moveDirectory, getFileDirectory(moveSource.fullPath)) || (moveSource.isDir && isPathWithin(moveDirectory, moveSource.fullPath))} onClick={() => { const source = moveSource; const destinationDirectory = moveDirectory; if (!isPathWithin(destinationDirectory, cwd) || (source.isDir && isPathWithin(destinationDirectory, source.fullPath))) return; void executeMutation("move", source, { destinationDirectory }); }}>{t("files.moveHere")}</button></div>
-          </div>
         </div>
       )}
     </div>
