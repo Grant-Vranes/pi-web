@@ -92,7 +92,8 @@ function assertDirectory(target: string, allowedRoots: Set<string>): void {
 function isSameOrDescendant(candidate: string, ancestor: string): boolean {
   const resolver = resolverFor(candidate, ancestor);
   const relative = resolver.relative(ancestor, candidate);
-  return relative === "" || (!relative.startsWith("..") && !resolver.isAbsolute(relative));
+  const traversesOutside = relative === ".." || relative.startsWith(`..${resolver.sep}`);
+  return relative === "" || (!traversesOutside && !resolver.isAbsolute(relative));
 }
 
 function executeMutation(
@@ -153,14 +154,19 @@ function executeMutation(
 
   assertVacant(destinationPath);
 
-  if (
-    fs.lstatSync(mutation.sourcePath).isDirectory()
-    && isSameOrDescendant(destinationPath, mutation.sourcePath)
-  ) {
-    throw new FileMutationError(
-      400,
-      "A folder cannot be moved into itself or one of its subfolders",
-    );
+  if (fs.lstatSync(mutation.sourcePath).isDirectory()) {
+    const canonicalSourcePath = fs.realpathSync(mutation.sourcePath);
+    const canonicalDestinationDirectory = fs.realpathSync(destinationDirectory);
+    const canonicalDestinationPath = resolverFor(
+      canonicalDestinationDirectory,
+      canonicalSourcePath,
+    ).join(canonicalDestinationDirectory, name);
+    if (isSameOrDescendant(canonicalDestinationPath, canonicalSourcePath)) {
+      throw new FileMutationError(
+        400,
+        "A folder cannot be moved into itself or one of its subfolders",
+      );
+    }
   }
 
   fs.renameSync(mutation.sourcePath, destinationPath);
