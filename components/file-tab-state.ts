@@ -1,6 +1,5 @@
 import type { FileViewerState } from "@/lib/file-viewer-state";
-import { getFileName } from "../lib/file-paths";
-import { samePath } from "../lib/paths";
+import { getFileName, sameFilePath } from "../lib/file-paths";
 import type { Tab } from "./TabBar";
 
 export type FileTabMutation =
@@ -61,7 +60,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
 }
 
 export function applyFileTabMutation(tabs: Tab[], mutation: FileTabMutation): Tab[] {
-  const index = tabs.findIndex((tab) => samePath(tab.filePath, mutation.sourcePath));
+  const index = tabs.findIndex((tab) => sameFilePath(tab.filePath, mutation.sourcePath));
   if (index === -1) return tabs;
 
   if (mutation.kind === "delete") {
@@ -87,7 +86,7 @@ export function getNextActiveFileTabId(
   if (activeTabId === null) return null;
 
   const activeTab = tabsBefore.find((tab) => tab.id === activeTabId);
-  if (activeTab && samePath(activeTab.filePath, mutation.sourcePath)) {
+  if (activeTab && sameFilePath(activeTab.filePath, mutation.sourcePath)) {
     if (mutation.kind !== "delete") return `file:${mutation.destinationPath}`;
     return nextTabs.at(-1)?.id ?? null;
   }

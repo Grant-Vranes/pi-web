@@ -5,6 +5,24 @@ export function normalizeFilePathSlashes(filePath: string): string {
   return filePath;
 }
 
+function isWindowsFilePath(filePath: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(filePath) || /^[/\\]{2}[^/\\]/.test(filePath);
+}
+
+/** Compare browser-visible paths using the host path conventions encoded in the paths. */
+export function sameFilePath(left: string, right: string): boolean {
+  const useWindowsRules = isWindowsFilePath(left) || isWindowsFilePath(right);
+  const normalize = (filePath: string) => {
+    let normalized = useWindowsRules ? filePath.replace(/\\/g, "/") : filePath;
+    if (normalized !== "/" && !/^[a-zA-Z]:\/$/.test(normalized)) {
+      normalized = normalized.replace(/\/+$/, "");
+    }
+    return useWindowsRules ? normalized.toLowerCase() : normalized;
+  };
+
+  return normalize(left) === normalize(right);
+}
+
 export function encodeFilePathForApi(filePath: string): string {
   return normalizeFilePathSlashes(filePath)
     .split("/")

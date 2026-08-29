@@ -126,6 +126,23 @@ test("deleting the active tab selects the final surviving tab", () => {
   assert.equal(getNextActiveFileTabId([tabA, tabB], tabA.id, mutation), tabB.id);
 });
 
+test("Windows-style path separator and case differences still identify the mutated tab", () => {
+  const windowsTab = {
+    ...tabA,
+    id: "file:C:\\Repo\\src\\File.ts",
+    filePath: "C:\\Repo\\src\\File.ts",
+  };
+  const mutation = {
+    kind: "move",
+    sourcePath: "c:/repo/SRC/file.ts/",
+    destinationPath: "C:/Repo/destination.ts",
+  };
+
+  const [next] = applyFileTabMutation([windowsTab], mutation);
+  assert.equal(next.filePath, mutation.destinationPath);
+  assert.equal(getNextActiveFileTabId([windowsTab], windowsTab.id, mutation), `file:${mutation.destinationPath}`);
+});
+
 test("a mutation for another path preserves tabs and the active id", () => {
   const tabs = [tabA, tabB];
   const mutation = { kind: "delete", sourcePath: "/repo/other.ts" };
