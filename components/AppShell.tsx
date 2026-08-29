@@ -8,7 +8,13 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
-import { openFileTab, saveFileViewerState } from "./file-tab-state";
+import {
+  applyFileTabMutation,
+  getNextActiveFileTabId,
+  openFileTab,
+  saveFileViewerState,
+  type FileTabMutation,
+} from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
@@ -943,6 +949,15 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
+  const handleFileMutation = useCallback((mutation: FileTabMutation) => {
+    const nextTabs = applyFileTabMutation(fileTabs, mutation);
+    const nextActiveTabId = getNextActiveFileTabId(fileTabs, activeFileTabId, mutation);
+    setFileTabs(nextTabs);
+    setActiveFileTabId(nextActiveTabId);
+    if (nextTabs.length === 0) setRightPanelOpen(false);
+    setExplorerRefreshKey((key) => key + 1);
+  }, [activeFileTabId, fileTabs]);
+
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
   }, [handleOpenFile, selectedSession?.id]);
@@ -1111,6 +1126,7 @@ export function AppShell() {
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
+        onFileMutation={handleFileMutation}
         explorerRefreshKey={explorerRefreshKey}
         onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}

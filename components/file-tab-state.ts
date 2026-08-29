@@ -1,5 +1,11 @@
 import type { FileViewerState } from "@/lib/file-viewer-state";
+import { getFileName } from "../lib/file-paths";
+import { samePath } from "../lib/paths";
 import type { Tab } from "./TabBar";
+
+export type FileTabMutation =
+  | { kind: "rename" | "move"; sourcePath: string; destinationPath: string }
+  | { kind: "delete"; sourcePath: string };
 
 interface OpenFileTabInput {
   fileName: string;
@@ -52,6 +58,41 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     }
     return next;
   });
+}
+
+export function applyFileTabMutation(tabs: Tab[], mutation: FileTabMutation): Tab[] {
+  const index = tabs.findIndex((tab) => samePath(tab.filePath, mutation.sourcePath));
+  if (index === -1) return tabs;
+
+  if (mutation.kind === "delete") {
+    return tabs.filter((_, tabIndex) => tabIndex !== index);
+  }
+
+  const next = [...tabs];
+  next[index] = {
+    ...next[index],
+    id: `file:${mutation.destinationPath}`,
+    filePath: mutation.destinationPath,
+    label: getFileName(mutation.destinationPath),
+  };
+  return next;
+}
+
+export function getNextActiveFileTabId(
+  tabsBefore: Tab[],
+  activeTabId: string | null,
+  mutation: FileTabMutation,
+): string | null {
+  const nextTabs = applyFileTabMutation(tabsBefore, mutation);
+  if (activeTabId === null) return null;
+
+  const activeTab = tabsBefore.find((tab) => tab.id === activeTabId);
+  if (activeTab && samePath(activeTab.filePath, mutation.sourcePath)) {
+    if (mutation.kind !== "delete") return `file:${mutation.destinationPath}`;
+    return nextTabs.at(-1)?.id ?? null;
+  }
+
+  return nextTabs.some((tab) => tab.id === activeTabId) ? activeTabId : nextTabs.at(-1)?.id ?? null;
 }
 
 export function saveFileViewerState(

@@ -15,6 +15,7 @@ import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
 import { collectDroppedUploadEntries, type DroppedUploadEntry } from "@/lib/drop-collect";
+import type { FileTabMutation } from "./file-tab-state";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -44,6 +45,7 @@ interface Props {
   onChangesCountChange?: (count: number) => void;
   fileSearchOpen?: boolean;
   onFileSearchOpenChange?: (open: boolean) => void;
+  onFileMutation?: (mutation: FileTabMutation) => void;
 }
 
 export interface FileExplorerHandle {

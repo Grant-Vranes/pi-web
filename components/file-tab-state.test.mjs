@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createJiti } from "jiti";
 
-import { openFileTab, saveFileViewerState } from "./file-tab-state.ts";
+const {
+  applyFileTabMutation,
+  getNextActiveFileTabId,
+  openFileTab,
+  saveFileViewerState,
+} = await createJiti(import.meta.url).import("./file-tab-state.ts");
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -95,4 +101,35 @@ test("a remounted viewer ignores the previous revision's late cleanup", () => {
   const stale = saveFileViewerState(reopened, tabA.id, 0, tabA.viewerState);
   assert.strictEqual(stale, reopened);
   assert.equal(stale[0].viewerState.displayMode, "diff");
+});
+
+test("renaming or moving an open tab replaces its path, id, and label", () => {
+  const mutation = { kind: "move", sourcePath: "/repo/a.ts", destinationPath: "/repo/src/b.ts" };
+  const next = applyFileTabMutation([tabA, tabB], mutation);
+
+  assert.deepEqual(next[0], {
+    ...tabA,
+    id: "file:/repo/src/b.ts",
+    filePath: "/repo/src/b.ts",
+    label: "b.ts",
+  });
+  assert.strictEqual(next[0].viewerState, tabA.viewerState);
+  assert.strictEqual(next[1], tabB);
+  assert.equal(getNextActiveFileTabId([tabA, tabB], tabA.id, mutation), "file:/repo/src/b.ts");
+});
+
+test("deleting the active tab selects the final surviving tab", () => {
+  const mutation = { kind: "delete", sourcePath: "/repo/a.ts" };
+  const next = applyFileTabMutation([tabA, tabB], mutation);
+
+  assert.deepEqual(next, [tabB]);
+  assert.equal(getNextActiveFileTabId([tabA, tabB], tabA.id, mutation), tabB.id);
+});
+
+test("a mutation for another path preserves tabs and the active id", () => {
+  const tabs = [tabA, tabB];
+  const mutation = { kind: "delete", sourcePath: "/repo/other.ts" };
+
+  assert.strictEqual(applyFileTabMutation(tabs, mutation), tabs);
+  assert.equal(getNextActiveFileTabId(tabs, tabA.id, mutation), tabA.id);
 });
