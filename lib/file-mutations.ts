@@ -1,0 +1,181 @@
+import fs from "fs";
+import path from "path";
+import { isExistingFilePathAllowed, isFilePathAllowed } from "./file-access";
+import { isWindowsAbsolutePath, samePath } from "./paths";
+
+export class FileMutationError extends Error {
+  constructor(
+    public readonly status: 400 | 403 | 404 | 409,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export type FileMutation =
+  | { type: "create-file" | "create-directory"; directory: string; name: string }
+  | { type: "rename"; sourcePath: string; name: string }
+  | { type: "move"; sourcePath: string; destinationDirectory: string }
+  | { type: "delete"; sourcePath: string };
+
+export type FileMutationResult = {
+  sourcePath: string;
+  destinationPath?: string;
+  deleted: boolean;
+};
+
+function resolverFor(...paths: string[]): typeof path {
+  return paths.some(isWindowsAbsolutePath) ? path.win32 : path;
+}
+
+function assertName(name: string): void {
+  if (
+    !name
+    || name === "."
+    || name === ".."
+    || /[\\/]/.test(name)
+    || path.isAbsolute(name)
+    || path.win32.isAbsolute(name)
+  ) {
+    throw new FileMutationError(400, "Invalid file name");
+  }
+}
+
+function pathEntryExists(target: string): boolean {
+  try {
+    fs.lstatSync(target);
+    return true;
+  } catch (error) {
+    if (isFileSystemError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function assertExistingAllowed(target: string, allowedRoots: Set<string>): void {
+  if (!pathEntryExists(target)) {
+    throw new FileMutationError(404, "File or directory not found");
+  }
+  if (
+    !isFilePathAllowed(target, allowedRoots)
+    || !isExistingFilePathAllowed(target, allowedRoots)
+  ) {
+    throw new FileMutationError(403, "Access denied");
+  }
+}
+
+function assertParentAllowed(target: string, allowedRoots: Set<string>): void {
+  const parent = resolverFor(target).dirname(target);
+  if (!isFilePathAllowed(target, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
+  if (!pathEntryExists(parent)) {
+    throw new FileMutationError(404, "Parent directory not found");
+  }
+  if (!isExistingFilePathAllowed(parent, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
+}
+
+function assertVacant(target: string): void {
+  if (pathEntryExists(target)) {
+    throw new FileMutationError(409, "A file or directory with this name already exists");
+  }
+}
+
+function assertDirectory(target: string, allowedRoots: Set<string>): void {
+  assertExistingAllowed(target, allowedRoots);
+  if (!fs.statSync(target).isDirectory()) {
+    throw new FileMutationError(400, "Target is not a directory");
+  }
+}
+
+function isSameOrDescendant(candidate: string, ancestor: string): boolean {
+  const resolver = resolverFor(candidate, ancestor);
+  const relative = resolver.relative(ancestor, candidate);
+  return relative === "" || (!relative.startsWith("..") && !resolver.isAbsolute(relative));
+}
+
+function executeMutation(
+  mutation: FileMutation,
+  allowedRoots: Set<string>,
+): FileMutationResult {
+  if ("directory" in mutation) {
+    assertName(mutation.name);
+    assertDirectory(mutation.directory, allowedRoots);
+    const destinationPath = resolverFor(mutation.directory).join(
+      mutation.directory,
+      mutation.name,
+    );
+    assertParentAllowed(destinationPath, allowedRoots);
+    assertVacant(destinationPath);
+
+    if (mutation.type === "create-file") {
+      fs.writeFileSync(destinationPath, "", { flag: "wx" });
+    } else {
+      fs.mkdirSync(destinationPath);
+    }
+    return { sourcePath: destinationPath, destinationPath, deleted: false };
+  }
+
+  assertExistingAllowed(mutation.sourcePath, allowedRoots);
+  if (mutation.type === "delete") {
+    fs.rmSync(mutation.sourcePath, {
+      recursive: fs.lstatSync(mutation.sourcePath).isDirectory(),
+      force: false,
+    });
+    return { sourcePath: mutation.sourcePath, deleted: true };
+  }
+
+  const sourceResolver = resolverFor(mutation.sourcePath);
+  const destinationDirectory = mutation.type === "rename"
+    ? sourceResolver.dirname(mutation.sourcePath)
+    : mutation.destinationDirectory;
+  const name = mutation.type === "rename"
+    ? mutation.name
+    : sourceResolver.basename(mutation.sourcePath);
+
+  assertName(name);
+  assertDirectory(destinationDirectory, allowedRoots);
+  const destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
+  assertParentAllowed(destinationPath, allowedRoots);
+
+  if (samePath(mutation.sourcePath, destinationPath)) {
+    throw new FileMutationError(400, "Source and destination are the same");
+  }
+  assertVacant(destinationPath);
+
+  if (
+    fs.lstatSync(mutation.sourcePath).isDirectory()
+    && isSameOrDescendant(destinationPath, mutation.sourcePath)
+  ) {
+    throw new FileMutationError(
+      400,
+      "A folder cannot be moved into itself or one of its subfolders",
+    );
+  }
+
+  fs.renameSync(mutation.sourcePath, destinationPath);
+  return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+}
+
+function isFileSystemError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+export function mutateFile(
+  mutation: FileMutation,
+  allowedRoots: Set<string>,
+): FileMutationResult {
+  try {
+    return executeMutation(mutation, allowedRoots);
+  } catch (error) {
+    if (error instanceof FileMutationError) throw error;
+    if (isFileSystemError(error) && error.code === "ENOENT") {
+      throw new FileMutationError(404, "File or directory not found");
+    }
+    if (isFileSystemError(error) && error.code === "EEXIST") {
+      throw new FileMutationError(409, "A file or directory with this name already exists");
+    }
+    throw error;
+  }
+}
