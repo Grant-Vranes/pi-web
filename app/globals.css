@@ -1365,30 +1365,136 @@ span.token.table {
 }
 .sidebar-new-session:disabled { color: var(--text-dim); cursor: not-allowed; opacity: 0.66; }
 .sidebar-conversations-list { background: var(--bg); }
-/* Session records use hairline gradient rules rather than boxed rows, retaining
-   density while making individual conversations easier to parse. */
-.sidebar-session-day-group,
-.sidebar-session-record {
+
+/* ── Session grouping system ──────────────────────────────────────────
+   Day groups read as document "chapters": a labelled header with a date
+   ordinal, a count chip, and a hairline boundary. Records are entries inside
+   the chapter — left-aligned to an accent rail that lights up on selection,
+   with a restrained in-chapter separator instead of a full-bleed rule. */
+.sidebar-session-day-group {
   position: relative;
+  padding: 2px 0 6px;
 }
-.sidebar-session-day-group::after,
-.sidebar-session-record::after {
+/* Chapter boundary: a single soft rule under the whole group, never under
+   each record — that keeps the group visually unified. */
+.sidebar-session-day-group::after {
   position: absolute;
-  right: 9px;
+  right: 10px;
   bottom: 0;
-  left: 14px;
+  left: 10px;
   height: 1px;
-  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--accent) 19%, var(--border)) 16%, color-mix(in srgb, var(--accent-hover) 14%, var(--border)) 52%, color-mix(in srgb, var(--accent) 15%, var(--border)) 84%, transparent 100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--border) 90%, transparent) 14%, var(--border) 50%, color-mix(in srgb, var(--border) 90%, transparent) 86%, transparent);
   content: "";
   pointer-events: none;
 }
-/* Give every record its own clearly visible gradient rule. The group rule is
-   intentionally softer, acting only as a date-section boundary. */
-.sidebar-session-record::after {
-  height: 1px;
-  opacity: 0.72;
+.sidebar-session-day-group:last-child::after { display: none; }
+
+/* Group header — a labelled chapter cap. */
+.sidebar-session-day-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0 10px 0 4px;
+  margin-bottom: 1px;
 }
-.sidebar-session-day-group::after { left: 0; right: 0; opacity: 0.56; }
+.sidebar-session-day-header-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px 5px 6px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: left;
+  font: 600 10.5px/1.2 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: color 120ms ease, background 120ms ease;
+}
+.sidebar-session-day-header-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+.sidebar-session-day-header-toggle .sidebar-day-caret {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 150ms ease, color 120ms ease;
+}
+.sidebar-session-day-header-toggle:hover .sidebar-day-caret {
+  color: var(--text-muted);
+}
+.sidebar-session-day-header-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+/* A quiet count chip beside the label — replaces inline meta, gives the
+   chapter a measurable weight at a glance. */
+.sidebar-session-day-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: color-mix(in srgb, var(--accent) 78%, var(--text-muted));
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.sidebar-session-day-header.is-collapsed .sidebar-day-caret { transform: rotate(-90deg); }
+.sidebar-session-day-header.is-collapsed .sidebar-session-day-count {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+
+/* Session record — an entry in the chapter. The accent rail on the left is a
+   continuous strip that lights up on selection; siblings stay quiet so the
+   active conversation is unambiguous in a long list. */
+.sidebar-session-record {
+  position: relative;
+}
+/* In-chapter separator: indented to align with the record text, far softer
+   than the chapter boundary so entries feel grouped, not gridded. */
+.sidebar-session-record::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  content: "";
+  pointer-events: none;
+}
+.sidebar-session-record:last-child::after { display: none; }
+/* Selection rail — the only saturated mark on a record. */
+.sidebar-session-record::before {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+  content: "";
+  pointer-events: none;
+  transition: background 120ms ease;
+}
+.sidebar-session-record[data-selected]::before {
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.sidebar-session-record[data-confirming]::before { background: #ef4444; }
 .sidebar-explorer-section {
   margin: 4px;
   border: 1px solid transparent;

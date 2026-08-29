@@ -1736,46 +1736,17 @@ function SessionDayGroupSection({
   return (
     <div className="sidebar-session-day-group">
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          width: "100%",
-          padding: "0 4px 0 0",
-        }}
+        className={`sidebar-session-day-header${collapsed ? " is-collapsed" : ""}`}
         onMouseEnter={() => setHeaderHovered(true)}
         onMouseLeave={() => setHeaderHovered(false)}
       >
         <button
+          className="sidebar-session-day-header-toggle"
           onClick={onToggleCollapse}
           title={t(collapsed ? "sidebar.expandGroup" : "sidebar.collapseGroup")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            flex: 1,
-            minWidth: 0,
-            padding: "6px 10px",
-            background: "none",
-            border: "none",
-            color: "var(--text-dim)",
-            cursor: "pointer",
-            textAlign: "left",
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: "0.01em",
-            transition: "color 0.12s, background 0.12s",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--bg-hover)";
-            e.currentTarget.style.color = "var(--text-muted)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "none";
-            e.currentTarget.style.color = "var(--text-dim)";
-          }}
         >
           <svg
+            className="sidebar-day-caret"
             width="9"
             height="9"
             viewBox="0 0 10 10"
@@ -1784,15 +1755,12 @@ function SessionDayGroupSection({
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{
-              flexShrink: 0,
-              transform: collapsed ? "rotate(-90deg)" : "none",
-              transition: "transform 0.15s",
-            }}
+            style={{ flexShrink: 0 }}
           >
             <polyline points="2 3.5 5 6.5 8 3.5" />
           </svg>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+          <span className="sidebar-session-day-header-label">{label}</span>
+          <span className="sidebar-session-day-count">{group.families.length}</span>
         </button>
         {/* Bulk archive for the whole day group. Shown only on the active
             Conversations tab, revealed on header hover (collapsed or expanded)
@@ -1804,7 +1772,7 @@ function SessionDayGroupSection({
             title={t("sidebar.archiveAllTitle")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: 24, height: 24, padding: 0, flexShrink: 0,
+              width: 22, height: 22, padding: 0, flexShrink: 0,
               background: "none", border: "1px solid var(--border)",
               borderRadius: 5, color: "var(--text-dim)",
               cursor: bulkBusy ? "default" : "pointer",
@@ -1823,7 +1791,7 @@ function SessionDayGroupSection({
               e.currentTarget.style.borderColor = "var(--border)";
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="21 8 21 21 3 21 3 8" />
               <rect x="1" y="3" width="22" height="5" rx="1" />
               <line x1="10" y1="12" x2="14" y2="12" />
@@ -2191,20 +2159,19 @@ function SessionItem({
         height: ITEM_HEIGHT,
         display: "flex",
         alignItems: "center",
-        paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
+        paddingLeft: depth > 0 ? depth * 12 + 18 : 18,
         paddingRight: 8,
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
           ? "rgba(239,68,68,0.06)"
-          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
-        borderLeft: confirmDelete
-          ? "2px solid #ef4444"
-          : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
+          : isSelected ? "color-mix(in srgb, var(--accent) 7%, transparent)" : hovered ? "var(--bg-hover)" : "transparent",
         transition: "background 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,
         overflow: "hidden",
       }}
+      data-selected={isSelected || undefined}
+      data-confirming={confirmDelete || undefined}
     >
       {confirmDelete ? (
         /* ── Delete confirmation: same height, two flat buttons ── */
@@ -2288,10 +2255,11 @@ function SessionItem({
                 alignItems: "center",
                 gap: 5,
                 minWidth: 0,
-                fontSize: 12,
-                fontWeight: isSelected ? 500 : 400,
-                lineHeight: 1.4,
-                color: "var(--text)",
+                fontSize: 12.5,
+                fontWeight: isSelected ? 600 : 400,
+                lineHeight: 1.35,
+                color: isSelected ? "var(--text)" : isUnread ? "var(--text)" : "var(--text-muted)",
+                transition: "color 0.1s",
               }}
               title={title}
             >
@@ -2299,28 +2267,32 @@ function SessionItem({
                 {title}
               </span>
             </div>
-            <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
+            <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 0, color: "var(--text-dim)", fontSize: 10.5, fontFamily: "var(--font-mono)", minWidth: 0, letterSpacing: "0.01em" }}>
               {isRunning ? (
                 <RunningSessionIndicator />
               ) : isUnread ? (
                 <UnreadSessionIndicator />
               ) : (
-                <span title={session.modified}>{formatSessionTimestamp(session.modified, locale)}</span>
+                <span title={session.modified} style={{ flexShrink: 0 }}>{formatSessionTimestamp(session.modified, locale)}</span>
               )}
-              <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
+              <span style={{ margin: "0 6px", color: "var(--border)", flexShrink: 0 }} aria-hidden="true">·</span>
+              <span style={{ flexShrink: 0 }}>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
               {session.isWorktree && session.branch && (
-                <span
-                  title={`Worktree: ${session.cwd}`}
-                  style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--accent)", minWidth: 0, overflow: "hidden" }}
-                >
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.branch}</span>
-                </span>
+                <>
+                  <span style={{ margin: "0 6px", color: "var(--border)", flexShrink: 0 }} aria-hidden="true">·</span>
+                  <span
+                    title={`Worktree: ${session.cwd}`}
+                    style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--accent)", minWidth: 0, overflow: "hidden", flexShrink: 1 }}
+                  >
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <line x1="6" y1="3" x2="6" y2="15" />
+                      <circle cx="18" cy="6" r="3" />
+                      <circle cx="6" cy="18" r="3" />
+                      <path d="M18 9a9 9 0 0 1-9 9" />
+                    </svg>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.branch}</span>
+                  </span>
+                </>
               )}
             </div>
           </div>
