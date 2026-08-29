@@ -1,5 +1,5 @@
 import type { FileViewerState } from "@/lib/file-viewer-state";
-import { getFileName, sameFilePath } from "../lib/file-paths";
+import { getFileName, normalizeFilePathSlashes, sameFilePath } from "../lib/file-paths";
 import type { Tab } from "./TabBar";
 
 export type FileTabMutation =
@@ -59,22 +59,60 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
   });
 }
 
-export function applyFileTabMutation(tabs: Tab[], mutation: FileTabMutation): Tab[] {
-  const index = tabs.findIndex((tab) => sameFilePath(tab.filePath, mutation.sourcePath));
-  if (index === -1) return tabs;
+function isWindowsFilePath(filePath: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(filePath) || /^[/\\]{2}[^/\\]/.test(filePath);
+}
 
+function trimTrailingSeparators(filePath: string): string {
+  const normalized = normalizeFilePathSlashes(filePath);
+  if (normalized === "/" || /^[a-zA-Z]:\/$/.test(normalized)) return normalized;
+  return normalized.replace(/\/+$/, "");
+}
+
+function getMutationSuffix(filePath: string, sourcePath: string): string | null {
+  const normalizedPath = trimTrailingSeparators(filePath);
+  const normalizedSource = trimTrailingSeparators(sourcePath);
+  if (sameFilePath(normalizedPath, normalizedSource)) return "";
+
+  const useWindowsRules = isWindowsFilePath(normalizedPath) || isWindowsFilePath(normalizedSource);
+  const comparablePath = useWindowsRules ? normalizedPath.toLowerCase() : normalizedPath;
+  const comparableSource = useWindowsRules ? normalizedSource.toLowerCase() : normalizedSource;
+  const sourcePrefix = comparableSource.endsWith("/") ? comparableSource : `${comparableSource}/`;
+  if (!comparablePath.startsWith(sourcePrefix)) return null;
+
+  return normalizedPath.slice(normalizedSource.length).replace(/^\/+/, "");
+}
+
+function replaceMutationPrefix(filePath: string, sourcePath: string, destinationPath: string): string | null {
+  const suffix = getMutationSuffix(filePath, sourcePath);
+  if (suffix === null) return null;
+  const destination = trimTrailingSeparators(destinationPath);
+  return suffix ? `${destination}/${suffix}` : destinationPath;
+}
+
+export function applyFileTabMutation(tabs: Tab[], mutation: FileTabMutation): Tab[] {
+  let changed = false;
   if (mutation.kind === "delete") {
-    return tabs.filter((_, tabIndex) => tabIndex !== index);
+    const next = tabs.filter((tab) => {
+      const affected = getMutationSuffix(tab.filePath, mutation.sourcePath) !== null;
+      changed ||= affected;
+      return !affected;
+    });
+    return changed ? next : tabs;
   }
 
-  const next = [...tabs];
-  next[index] = {
-    ...next[index],
-    id: `file:${mutation.destinationPath}`,
-    filePath: mutation.destinationPath,
-    label: getFileName(mutation.destinationPath),
-  };
-  return next;
+  const next = tabs.map((tab) => {
+    const destination = replaceMutationPrefix(tab.filePath, mutation.sourcePath, mutation.destinationPath);
+    if (destination === null) return tab;
+    changed = true;
+    return {
+      ...tab,
+      id: `file:${destination}`,
+      filePath: destination,
+      label: getFileName(destination),
+    };
+  });
+  return changed ? next : tabs;
 }
 
 export function getNextActiveFileTabId(
@@ -86,8 +124,15 @@ export function getNextActiveFileTabId(
   if (activeTabId === null) return null;
 
   const activeTab = tabsBefore.find((tab) => tab.id === activeTabId);
-  if (activeTab && sameFilePath(activeTab.filePath, mutation.sourcePath)) {
-    if (mutation.kind !== "delete") return `file:${mutation.destinationPath}`;
+  if (activeTab && getMutationSuffix(activeTab.filePath, mutation.sourcePath) !== null) {
+    if (mutation.kind !== "delete") {
+      const destination = replaceMutationPrefix(
+        activeTab.filePath,
+        mutation.sourcePath,
+        mutation.destinationPath,
+      );
+      return destination === null ? activeTabId : `file:${destination}`;
+    }
     return nextTabs.at(-1)?.id ?? null;
   }
 

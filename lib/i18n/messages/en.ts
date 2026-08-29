@@ -288,6 +288,7 @@ export const enLocale: LocalePlugin = {
     "files.fileName": "Name",
     "files.create": "Create",
     "files.confirmDelete": "Permanently delete {name}?",
+    "files.confirmDeleteDirectory": "Permanently delete {name} and all of its contents?",
     "files.moveHere": "Move here",
     "files.selectDestination": "Select destination folder",
     "files.invalidMoveTarget": "A folder cannot be moved into itself or one of its subfolders.",

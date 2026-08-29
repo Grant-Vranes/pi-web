@@ -474,13 +474,24 @@ export function AppShell() {
   // Right panel — file tabs only
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  const fileTabsRef = useRef(fileTabs);
+  const activeFileTabIdRef = useRef(activeFileTabId);
+  fileTabsRef.current = fileTabs;
+  activeFileTabIdRef.current = activeFileTabId;
 
   const handleFileViewerStateChange = useCallback((
     tabId: string,
     viewerRevision: number,
     viewerState: FileViewerState,
   ) => {
-    setFileTabs((prev) => saveFileViewerState(prev, tabId, viewerRevision, viewerState));
+    const nextTabs = saveFileViewerState(
+      fileTabsRef.current,
+      tabId,
+      viewerRevision,
+      viewerState,
+    );
+    fileTabsRef.current = nextTabs;
+    setFileTabs(nextTabs);
   }, []);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
@@ -660,6 +671,8 @@ export function AppShell() {
     if (currentProject !== newProject) {
       // File tabs are keyed by absolute path, so tabs opened in the previous
       // project must not linger. Same-project worktree switches keep them.
+      fileTabsRef.current = [];
+      activeFileTabIdRef.current = null;
       setFileTabs([]);
       setActiveFileTabId(null);
       setRightPanelOpen(false);
@@ -936,13 +949,16 @@ export function AppShell() {
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;
-    setFileTabs((prev) => openFileTab(prev, {
+    const nextTabs = openFileTab(fileTabsRef.current, {
       fileName,
       filePath,
       modeHint,
       sourceSessionId,
       tabId,
-    }));
+    });
+    fileTabsRef.current = nextTabs;
+    activeFileTabIdRef.current = tabId;
+    setFileTabs(nextTabs);
     setActiveFileTabId(tabId);
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
@@ -950,30 +966,36 @@ export function AppShell() {
   }, [isMobile]);
 
   const handleFileMutation = useCallback((mutation: FileTabMutation) => {
-    const nextTabs = applyFileTabMutation(fileTabs, mutation);
-    const nextActiveTabId = getNextActiveFileTabId(fileTabs, activeFileTabId, mutation);
+    const currentTabs = fileTabsRef.current;
+    const nextTabs = applyFileTabMutation(currentTabs, mutation);
+    const nextActiveTabId = getNextActiveFileTabId(
+      currentTabs,
+      activeFileTabIdRef.current,
+      mutation,
+    );
+    fileTabsRef.current = nextTabs;
+    activeFileTabIdRef.current = nextActiveTabId;
     setFileTabs(nextTabs);
     setActiveFileTabId(nextActiveTabId);
     if (nextTabs.length === 0) setRightPanelOpen(false);
     setExplorerRefreshKey((key) => key + 1);
-  }, [activeFileTabId, fileTabs]);
+  }, []);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
   }, [handleOpenFile, selectedSession?.id]);
 
   const handleCloseFileTab = useCallback((tabId: string) => {
-    setFileTabs((prev) => {
-      const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0) setRightPanelOpen(false);
-      return next;
-    });
-    setActiveFileTabId((cur) => {
-      if (cur !== tabId) return cur;
-      const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
-    });
-  }, [fileTabs]);
+    const nextTabs = fileTabsRef.current.filter((tab) => tab.id !== tabId);
+    const nextActiveTabId = activeFileTabIdRef.current === tabId
+      ? nextTabs.at(-1)?.id ?? null
+      : activeFileTabIdRef.current;
+    fileTabsRef.current = nextTabs;
+    activeFileTabIdRef.current = nextActiveTabId;
+    setFileTabs(nextTabs);
+    setActiveFileTabId(nextActiveTabId);
+    if (nextTabs.length === 0) setRightPanelOpen(false);
+  }, []);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -2606,7 +2628,10 @@ export function AppShell() {
             <TabBar
               tabs={fileTabs}
               activeTabId={activeFileTabId ?? ""}
-              onSelectTab={setActiveFileTabId}
+              onSelectTab={(tabId) => {
+                activeFileTabIdRef.current = tabId;
+                setActiveFileTabId(tabId);
+              }}
               onCloseTab={handleCloseFileTab}
             />
           </div>

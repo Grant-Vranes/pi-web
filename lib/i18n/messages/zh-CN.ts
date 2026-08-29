@@ -288,6 +288,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.fileName": "名称",
     "files.create": "创建",
     "files.confirmDelete": "永久删除 {name}？",
+    "files.confirmDeleteDirectory": "永久删除 {name} 及其中的所有内容？",
     "files.moveHere": "移动到此处",
     "files.selectDestination": "选择目标文件夹",
     "files.invalidMoveTarget": "文件夹不能移动到自身或其子文件夹中。",

@@ -92,7 +92,10 @@ type ExplorerMutation = {
   target: FileNode;
 };
 type ExplorerMutationType = ExplorerMutation["type"];
-type MutationResponse = { error?: string; sourcePath: string; destinationPath?: string; deleted: boolean };
+type MutationResponse = { sourcePath: string; destinationPath?: string; deleted: boolean };
+
+class FileMutationServerError extends Error {}
+class FileMutationRequestError extends Error {}
 
 function sameFilePath(left: string, right: string): boolean {
   return normalizeFilePathSlashes(left).replace(/\/+$/, "") === normalizeFilePathSlashes(right).replace(/\/+$/, "");
@@ -109,14 +112,46 @@ async function requestFileMutation(
   type: ExplorerMutationType,
   body: Record<string, string> = {},
 ): Promise<MutationResponse> {
-  const response = await fetch(`/api/files/${encodeFilePathForApi(targetPath)}?type=${type}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json().catch(() => ({})) as Partial<MutationResponse>;
-  if (!response.ok || !data.sourcePath) {
-    throw new Error(data.error ?? `File operation failed (HTTP ${response.status})`);
+  let response: Response;
+  try {
+    response = await fetch(`/api/files/${encodeFilePathForApi(targetPath)}?type=${type}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new FileMutationRequestError();
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new FileMutationRequestError();
+  }
+  if (!response.ok) {
+    if (
+      data
+      && typeof data === "object"
+      && "error" in data
+      && typeof data.error === "string"
+      && data.error.trim()
+    ) {
+      throw new FileMutationServerError(data.error);
+    }
+    throw new FileMutationRequestError();
+  }
+  if (
+    !data
+    || typeof data !== "object"
+    || !("sourcePath" in data)
+    || typeof data.sourcePath !== "string"
+    || !("deleted" in data)
+    || typeof data.deleted !== "boolean"
+    || ((type === "rename" || type === "move")
+      && (!("destinationPath" in data) || typeof data.destinationPath !== "string"))
+  ) {
+    throw new FileMutationRequestError();
   }
   return data as MutationResponse;
 }
@@ -684,7 +719,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [cwd, fileSearchOpen, searchQuery]);
+  }, [cwd, fileSearchOpen, searchQuery, treeRefreshKey]);
 
   // Focus the search input whenever the search panel opens.
   useEffect(() => {
@@ -776,7 +811,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       if (requestId === mutationRequestRef.current) finishMutation();
     }
     catch (cause) {
-      if (requestId === mutationRequestRef.current) setMutationError(cause instanceof Error ? cause.message : t("files.operationFailed"));
+      if (requestId === mutationRequestRef.current) {
+        setMutationError(
+          cause instanceof FileMutationServerError
+            ? cause.message
+            : t("files.operationFailed"),
+        );
+      }
     }
     finally {
       if (requestId === mutationRequestRef.current) setMutationBusy(false);
@@ -1360,7 +1401,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           {!contextMenu.isRoot && <>
             <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => { setPendingMutation({ type: "rename", target: contextMenu.target }); setMutationName(contextMenu.target.name); setContextMenu(null); }} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "var(--text)", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.rename")}</button>
             <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => openMovePicker(contextMenu.target)} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "var(--text)", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.moveTo")}</button>
-            <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => { const target = contextMenu.target; if (window.confirm(t("files.confirmDelete", { name: target.name }))) void executeMutation("delete", target); }} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "#f87171", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.delete")}</button>
+            <button type="button" role="menuitem" disabled={mutationBusy} onClick={() => { const target = contextMenu.target; const confirmKey = target.isDir ? "files.confirmDeleteDirectory" : "files.confirmDelete"; if (window.confirm(t(confirmKey, { name: target.name }))) void executeMutation("delete", target); }} style={{ display: "block", width: "100%", padding: "6px 8px", border: 0, background: "none", color: "#f87171", textAlign: "left", cursor: "pointer", fontSize: 12 }}>{t("files.delete")}</button>
           </>}
         </div>
       )}
