@@ -50,6 +50,11 @@ const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
 const FILE_MUTATION_TYPES = ["create-file", "create-directory", "rename", "move", "delete"] as const;
 type FileMutationType = typeof FILE_MUTATION_TYPES[number];
 const FILE_MUTATION_TYPE_SET = new Set<string>(FILE_MUTATION_TYPES);
+const FILE_UPLOAD_TYPES = ["upload", "upload-check"] as const;
+const FILE_POST_REQUEST_TYPE_SET = new Set<string>([
+  ...FILE_MUTATION_TYPES,
+  ...FILE_UPLOAD_TYPES,
+]);
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
@@ -178,6 +183,9 @@ export async function POST(
   try {
     const { path: segments } = await params;
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
+    if (!FILE_POST_REQUEST_TYPE_SET.has(type)) {
+      return NextResponse.json({ error: "Invalid file request type" }, { status: 400 });
+    }
     const mutationType = parseFileMutationType(type);
     if (mutationType) {
       const body = await request.json().catch(() => null);
@@ -265,7 +273,7 @@ export async function POST(
     if (error instanceof FileMutationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: "File operation failed" }, { status: 500 });
   }
 }
 

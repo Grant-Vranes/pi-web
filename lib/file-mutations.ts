@@ -51,23 +51,28 @@ function pathEntryExists(target: string): boolean {
   }
 }
 
+function assertLexicallyAllowed(target: string, allowedRoots: Set<string>): void {
+  if (!isFilePathAllowed(target, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
+}
+
 function assertExistingAllowed(target: string, allowedRoots: Set<string>): void {
+  // Authorize before observing the filesystem so outside-root paths cannot be
+  // used as an existence oracle.
+  assertLexicallyAllowed(target, allowedRoots);
   if (!pathEntryExists(target)) {
     throw new FileMutationError(404, "File or directory not found");
   }
-  if (
-    !isFilePathAllowed(target, allowedRoots)
-    || !isExistingFilePathAllowed(target, allowedRoots)
-  ) {
+  if (!isExistingFilePathAllowed(target, allowedRoots)) {
     throw new FileMutationError(403, "Access denied");
   }
 }
 
 function assertParentAllowed(target: string, allowedRoots: Set<string>): void {
   const parent = resolverFor(target).dirname(target);
-  if (!isFilePathAllowed(target, allowedRoots)) {
-    throw new FileMutationError(403, "Access denied");
-  }
+  assertLexicallyAllowed(target, allowedRoots);
+  assertLexicallyAllowed(parent, allowedRoots);
   if (!pathEntryExists(parent)) {
     throw new FileMutationError(404, "Parent directory not found");
   }
@@ -76,7 +81,8 @@ function assertParentAllowed(target: string, allowedRoots: Set<string>): void {
   }
 }
 
-function assertVacant(target: string): void {
+function assertVacant(target: string, allowedRoots: Set<string>): void {
+  assertLexicallyAllowed(target, allowedRoots);
   if (pathEntryExists(target)) {
     throw new FileMutationError(409, "A file or directory with this name already exists");
   }
@@ -96,6 +102,9 @@ function isSameOrDescendant(candidate: string, ancestor: string): boolean {
   return relative === "" || (!traversesOutside && !resolver.isAbsolute(relative));
 }
 
+// Authorization and mutation are separate path-based Node fs calls. Another
+// local process can replace a checked path between them; this known TOCTOU
+// window is an accepted limitation of the current Node API approach.
 function executeMutation(
   mutation: FileMutation,
   allowedRoots: Set<string>,
@@ -108,7 +117,7 @@ function executeMutation(
       mutation.name,
     );
     assertParentAllowed(destinationPath, allowedRoots);
-    assertVacant(destinationPath);
+    assertVacant(destinationPath, allowedRoots);
 
     if (mutation.type === "create-file") {
       fs.writeFileSync(destinationPath, "", { flag: "wx" });
@@ -119,17 +128,13 @@ function executeMutation(
   }
 
   if (mutation.type === "delete") {
+    assertLexicallyAllowed(mutation.sourcePath, allowedRoots);
     const sourceStat = fs.lstatSync(mutation.sourcePath);
     if (sourceStat.isSymbolicLink()) {
       const sourceParent = resolverFor(mutation.sourcePath).dirname(mutation.sourcePath);
-      if (
-        !isFilePathAllowed(mutation.sourcePath, allowedRoots)
-        || !isExistingFilePathAllowed(sourceParent, allowedRoots)
-      ) {
-        throw new FileMutationError(403, "Access denied");
-      }
-    } else {
-      assertExistingAllowed(mutation.sourcePath, allowedRoots);
+      assertExistingAllowed(sourceParent, allowedRoots);
+    } else if (!isExistingFilePathAllowed(mutation.sourcePath, allowedRoots)) {
+      throw new FileMutationError(403, "Access denied");
     }
     fs.rmSync(mutation.sourcePath, {
       recursive: sourceStat.isDirectory(),
@@ -152,7 +157,7 @@ function executeMutation(
   const destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
   assertParentAllowed(destinationPath, allowedRoots);
 
-  assertVacant(destinationPath);
+  assertVacant(destinationPath, allowedRoots);
 
   if (fs.lstatSync(mutation.sourcePath).isDirectory()) {
     const canonicalSourcePath = fs.realpathSync(mutation.sourcePath);
@@ -190,6 +195,12 @@ export function mutateFile(
     }
     if (isFileSystemError(error) && error.code === "EEXIST") {
       throw new FileMutationError(409, "A file or directory with this name already exists");
+    }
+    if (isFileSystemError(error) && error.code === "ENOTDIR") {
+      throw new FileMutationError(400, "Target is not a directory");
+    }
+    if (isFileSystemError(error) && error.code === "ENOTEMPTY") {
+      throw new FileMutationError(409, "Directory is not empty");
     }
     throw error;
   }
