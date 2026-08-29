@@ -521,6 +521,45 @@ pre, code {
   white-space: pre-wrap;
 }
 
+/* ── Conversation history refinements ─────────────────────────────── */
+
+/* User message bubble: soft accent tint with an asymmetric tail corner */
+.user-message-bubble {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.user-message-bubble:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+.user-message-bubble::-webkit-scrollbar { width: 6px; }
+.user-message-bubble::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 3px;
+}
+
+/* Assistant header: the π avatar + model name + hairline divider */
+.assistant-message-header {
+  user-select: none;
+}
+
+/* Tool call card: subtle lift on hover, focus ring on the toggle */
+.tool-call-card {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tool-call-card:hover {
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 6%, transparent);
+}
+.tool-call-card .tool-call-name {
+  transition: color 0.12s ease;
+}
+.tool-call-status-dot {
+  transition: opacity 0.2s ease;
+}
+
+/* Thinking block header hover affordance */
+.thinking-block > button:hover {
+  background: var(--bg-hover);
+}
+
 .markdown-custom-message {
   line-height: 1.32;
 }

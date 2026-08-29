@@ -350,7 +350,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             <img
               src={src}
               alt=""
-              style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
+              style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, objectFit: "contain", display: "block", border: "1px solid color-mix(in srgb, var(--accent) 18%, var(--border))" }}
             />
           </ImagePreview>
         );
@@ -374,19 +374,21 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
+          className="user-message-bubble"
           style={{
             flex: 1,
             minWidth: 0,
             background: "var(--user-bg)",
-            border: "1px solid rgba(59,130,246,0.2)",
-            borderRadius: 12,
-            padding: "8px 12px",
+            border: "1px solid color-mix(in srgb, var(--accent) 22%, var(--border))",
+            borderRadius: "14px 14px 4px 14px",
+            padding: "9px 13px",
             fontSize: 14,
             lineHeight: 1.6,
             color: "var(--text)",
             wordBreak: "break-word",
             maxHeight: USER_BUBBLE_MAX_HEIGHT,
             overflowY: "auto",
+            boxShadow: "0 1px 2px color-mix(in srgb, var(--accent) 8%, transparent)",
           }}
         >
           {commandText ? (
@@ -733,18 +735,41 @@ function AssistantMessageView({
     >
       {/* Model label */}
       <div
+        className="assistant-message-header"
         style={{
           fontSize: 11,
           color: "var(--text-dim)",
-          marginBottom: 4,
+          marginBottom: 6,
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 7,
         }}
       >
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 18,
+            height: 18,
+            borderRadius: 6,
+            background: "color-mix(in srgb, var(--accent) 12%, var(--bg-panel))",
+            color: "var(--accent)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            fontWeight: 700,
+            lineHeight: 1,
+            flexShrink: 0,
+            border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
+          }}
+        >
+          π
+        </span>
         {message.provider && (
-          <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
+          <span style={{ fontWeight: 550, color: "var(--text-muted)" }}>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
         )}
+        <span aria-hidden="true" style={{ flex: 1, height: 1, background: "linear-gradient(90deg, var(--border), transparent)", minWidth: 12 }} />
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
           return (
@@ -908,11 +933,14 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 
   return (
     <div
+      className="thinking-block"
       style={{
         border: "1px solid var(--border)",
-        borderRadius: 6,
+        borderRadius: 8,
         overflow: "hidden",
         fontSize: 13,
+        background: "var(--bg)",
+        boxShadow: "0 1px 2px color-mix(in srgb, var(--text) 2%, transparent)",
       }}
     >
       <button
@@ -920,18 +948,23 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 7,
           width: "100%",
-          padding: "6px 10px",
+          padding: "7px 11px",
           background: "var(--bg-panel)",
           border: "none",
           color: "var(--text-muted)",
           cursor: "pointer",
           fontSize: 12,
           textAlign: "left",
+          borderBottom: expanded ? "1px solid var(--border)" : "none",
+          transition: "background 0.12s",
         }}
       >
-         <span>{t("i18n.thinking")}</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.65, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.18s" }} aria-hidden="true">
+          <path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .9 1.6l.1.7h6l.1-.7c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2z" />
+        </svg>
+        <span style={{ fontWeight: 550 }}>{t("i18n.thinking")}</span>
         {duration !== undefined && (
           <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
         )}
@@ -939,13 +972,14 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
       {expanded && (
         <div
           style={{
-            padding: "8px 10px",
+            padding: "9px 12px",
             color: error ? "#f87171" : "var(--text-muted)",
             fontSize: 12,
-            lineHeight: 1.6,
+            lineHeight: 1.65,
             whiteSpace: "pre-wrap",
-            background: "var(--bg-panel)",
+            background: "var(--bg)",
             borderTop: "1px solid var(--border)",
+            borderLeft: "2px solid color-mix(in srgb, var(--accent) 30%, var(--border))",
           }}
         >
            {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
@@ -980,12 +1014,18 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
 
   return (
     <div
+      className="tool-call-card"
       style={{
-        borderRadius: 7,
+        borderRadius: 8,
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
+        border: isError
+          ? "1px solid color-mix(in srgb, #f87171 38%, var(--border))"
+          : "1px solid color-mix(in srgb, #22c55e 28%, var(--border))",
+        background: isError
+          ? "color-mix(in srgb, #f87171 5%, var(--bg))"
+          : "color-mix(in srgb, #22c55e 4%, var(--bg))",
+        boxShadow: "0 1px 2px color-mix(in srgb, var(--text) 3%, transparent)",
       }}
     >
       {/* ── Tool call header ── */}
@@ -1007,9 +1047,10 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             textAlign: "left",
           }}
         >
-          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+          <span className="tool-call-name" style={{ color: isError ? "#f87171" : "#22c55e", fontFamily: "var(--font-mono)", fontWeight: 650, fontSize: 11, flexShrink: 0, letterSpacing: 0.01 }}>
             {block.toolName}
           </span>
+          <span className="tool-call-status-dot" aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: isError ? "#f87171" : "#22c55e", flexShrink: 0, opacity: 0.8, boxShadow: "0 0 0 2px color-mix(in srgb, currentColor 18%, transparent)" }} />
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {isStreamingInput ? t("chat.generatingToolInput") : getToolPreview(block)}
           </span>
@@ -1398,12 +1439,15 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
             display: "flex",
             alignItems: "center",
             gap: 8,
-            padding: "7px 10px",
+            padding: "8px 11px",
             borderBottom: "1px solid var(--border)",
             background: "var(--bg-panel)",
             color: "var(--text-muted)",
           }}
         >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }} aria-hidden="true">
+            <path d="M21 8v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5h8a5 5 0 0 1 5 5Z" /><path d="M9 12h6" /><path d="M12 9v6" />
+          </svg>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             compaction
           </span>
