@@ -29,6 +29,11 @@ import {
   type UploadFileInput,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import {
+  FileMutationError,
+  mutateFile,
+  type FileMutation,
+} from "@/lib/file-mutations";
 import { samePath } from "@/lib/paths";
 
 const IGNORED_NAMES = new Set([
@@ -42,6 +47,9 @@ const IGNORED_SUFFIXES = [".pyc"];
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
+const FILE_MUTATION_TYPES = ["create-file", "create-directory", "rename", "move", "delete"] as const;
+type FileMutationType = typeof FILE_MUTATION_TYPES[number];
+const FILE_MUTATION_TYPE_SET = new Set<string>(FILE_MUTATION_TYPES);
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
@@ -125,6 +133,40 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
+function parseFileMutationType(value: string): FileMutationType | null {
+  return FILE_MUTATION_TYPE_SET.has(value) ? (value as FileMutationType) : null;
+}
+
+function parseMutation(
+  type: FileMutationType,
+  filePath: string,
+  body: unknown,
+): FileMutation {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new FileMutationError(400, "Request body must be a JSON object");
+  }
+  const input = body as Record<string, unknown>;
+  if (type === "create-file" || type === "create-directory") {
+    if (typeof input.name !== "string") {
+      throw new FileMutationError(400, "name must be a string");
+    }
+    return { type, directory: filePath, name: input.name };
+  }
+  if (type === "rename") {
+    if (typeof input.name !== "string") {
+      throw new FileMutationError(400, "name must be a string");
+    }
+    return { type, sourcePath: filePath, name: input.name };
+  }
+  if (type === "move") {
+    if (typeof input.destinationDirectory !== "string") {
+      throw new FileMutationError(400, "destinationDirectory must be a string");
+    }
+    return { type, sourcePath: filePath, destinationDirectory: input.destinationDirectory };
+  }
+  return { type, sourcePath: filePath };
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -135,10 +177,19 @@ export async function POST(
 
   try {
     const { path: segments } = await params;
+    const type = request.nextUrl.searchParams.get("type") ?? "upload";
+    const mutationType = parseFileMutationType(type);
+    if (mutationType) {
+      const body = await request.json().catch(() => null);
+      const mutation = parseMutation(mutationType, filePathFromSegments(segments), body);
+      const allowedRoots = await getAllowedFileRoots();
+      const result = mutateFile(mutation, allowedRoots);
+      return NextResponse.json(result);
+    }
+
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
-    const type = request.nextUrl.searchParams.get("type") ?? "upload";
 
     if (type === "upload-check") {
       const body = await request.json().catch(() => null) as { fileNames?: unknown } | null;
@@ -211,6 +262,9 @@ export async function POST(
       { status: errors.length > 0 ? 207 : 200 },
     );
   } catch (error) {
+    if (error instanceof FileMutationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
