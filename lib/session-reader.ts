@@ -11,6 +11,7 @@ import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } fro
 import { normalizeToolCalls } from "./normalize";
 import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
+import { readArchivedSessionIds } from "./archived-sessions";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
@@ -172,7 +173,13 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       transient: false,
     };
   });
-  return attachSessionProjectInfo(sessions);
+  // Stamp the archive flag from the persisted sidecar so the sidebar can split
+  // active vs archived sessions without a second round-trip.
+  const archivedIds = readArchivedSessionIds();
+  const stamped = archivedIds.size > 0
+    ? sessions.map((session) => (archivedIds.has(session.id) ? { ...session, archived: true } : session))
+    : sessions;
+  return attachSessionProjectInfo(stamped);
 }
 
 export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {

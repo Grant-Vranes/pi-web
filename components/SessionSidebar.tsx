@@ -372,6 +372,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [collapsedDayGroups, setCollapsedDayGroups] = useState<Set<string>>(() => loadCollapsedDayGroups());
+  const [conversationsTab, setConversationsTab] = useState<"active" | "archived">("active");
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
@@ -856,6 +857,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     ? sessionsForProject(allSessions, selectedProject.key)
     : allSessions;
 
+  // Split by archive flag so each sidebar tab renders its own day groups.
+  const activeSessions = conversationsTab === "active"
+    ? filteredSessions.filter((session) => !session.archived)
+    : [];
+  const archivedSessions = conversationsTab === "archived"
+    ? filteredSessions.filter((session) => session.archived)
+    : [];
+  const tabSessions = conversationsTab === "active" ? activeSessions : archivedSessions;
+
   // Remember every project that has been selected, including directories with
   // no session file yet. Without this, an empty project disappears as soon as
   // the user clicks elsewhere because getRecentProjects() is session-backed.
@@ -915,7 +925,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       : null);
 
-  const sessionFamilies = listSessionFamilies(filteredSessions);
+  const sessionFamilies = listSessionFamilies(tabSessions);
   const sessionDayGroups = useMemo<SessionDayGroup[]>(
     () => groupFamiliesByDay(sessionFamilies),
     [sessionFamilies],
@@ -1256,16 +1266,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }}
       >
       <div className="sidebar-section-heading">
-        <div className="sidebar-section-title">
-          <span className="sidebar-section-marker" aria-hidden="true" />
-          <span>{t("sidebar.conversations")}</span>
-          {sessionFamilies.length > 0 && <span className="sidebar-section-count">{sessionFamilies.length}</span>}
-        </div>
+        <ConversationsTabs
+          tab={conversationsTab}
+          onChange={setConversationsTab}
+          activeCount={filteredSessions.filter((session) => !session.archived).length}
+          archivedCount={filteredSessions.filter((session) => session.archived).length}
+          t={t}
+        />
         <div className="sidebar-section-actions">
           <button
             className="sidebar-new-session"
             onClick={handleNewSession}
-            disabled={newSessionDisabled}
+            disabled={newSessionDisabled || conversationsTab === "archived"}
             title={canCreateSession ? t("sidebar.newSessionTitle", { path: selectedCwd ?? "" }) : t("sidebar.selectProject")}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="6" y1="1" x2="6" y2="11" /><line x1="1" y1="6" x2="11" y2="6" /></svg>
@@ -1295,7 +1307,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
         {!loading && !error && sessionFamilies.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.noSessions")}
+            {conversationsTab === "archived" ? t("sidebar.noArchivedSessions") : t("sidebar.noSessions")}
           </div>
         )}
         {sessionDayGroups.map((group) => {
@@ -1315,8 +1327,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               runningSessionIds={runningSessionIds}
               unreadSessionIds={unreadSessionIds}
               locale={locale}
+              archivedView={conversationsTab === "archived"}
               onSelectSession={handleSelectSessionFromList}
               onRenamed={loadSessions}
+              onArchivedChange={loadSessions}
               onSessionDeleted={(id) => {
                 onSessionDeleted?.(id);
                 loadSessions();
@@ -1476,6 +1490,102 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   );
 }
 
+function ConversationsTabButton({
+  isActive,
+  onClick,
+  label,
+  count,
+}: {
+  isActive: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "4px 8px",
+        border: "none",
+        background: isActive ? "var(--bg-selected)" : "none",
+        color: isActive ? "var(--text)" : "var(--text-dim)",
+        cursor: "pointer",
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: "var(--font-mono)",
+        borderRadius: 6,
+        transition: "background 0.12s, color 0.12s",
+        whiteSpace: "nowrap",
+      }}
+      onMouseEnter={(e) => {
+        if (isActive) return;
+        e.currentTarget.style.background = "var(--bg-hover)";
+        e.currentTarget.style.color = "var(--text-muted)";
+      }}
+      onMouseLeave={(e) => {
+        if (isActive) return;
+        e.currentTarget.style.background = "none";
+        e.currentTarget.style.color = "var(--text-dim)";
+      }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <span className="sidebar-section-marker" aria-hidden="true" style={isActive ? {} : { opacity: 0.4 }} />
+        <span>{label}</span>
+      </span>
+      {count > 0 && <span className="sidebar-section-count">{count}</span>}
+    </button>
+  );
+}
+
+/** Two-tab switcher (Conversations | Archive) that replaces the single
+ *  sidebar-section-title inside the conversations heading. */
+function ConversationsTabs({
+  tab,
+  onChange,
+  activeCount,
+  archivedCount,
+  t,
+}: {
+  tab: "active" | "archived";
+  onChange: (tab: "active" | "archived") => void;
+  activeCount: number;
+  archivedCount: number;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 2,
+      minWidth: 0,
+      padding: "2px",
+      background: "var(--bg)",
+      borderRadius: 8,
+      border: "1px solid var(--border)",
+      flexShrink: 1,
+      overflow: "hidden",
+    }}>
+      <ConversationsTabButton
+        isActive={tab === "active"}
+        onClick={() => onChange("active")}
+        label={t("sidebar.tabConversations")}
+        count={activeCount}
+      />
+      <ConversationsTabButton
+        isActive={tab === "archived"}
+        onClick={() => onChange("archived")}
+        label={t("sidebar.tabArchive")}
+        count={archivedCount}
+      />
+    </div>
+  );
+}
+
 /** A persistent, compact workspace rail. It mirrors the dropdown's project
  * selection state while making cross-project activity visible at a glance. */
 function ProjectRail({
@@ -1573,8 +1683,10 @@ function SessionDayGroupSection({
   runningSessionIds,
   unreadSessionIds,
   locale,
+  archivedView,
   onSelectSession,
   onRenamed,
+  onArchivedChange,
   onSessionDeleted,
   onToggleCollapse,
   t,
@@ -1586,61 +1698,139 @@ function SessionDayGroupSection({
   runningSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
   locale: Locale;
+  archivedView: boolean;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
+  onArchivedChange?: () => void;
   onSessionDeleted?: (id: string) => void;
   onToggleCollapse: () => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [headerHovered, setHeaderHovered] = useState(false);
+  // Root session ids of every family in this day group. Archiving the root is
+  // enough — subagents are derived rows that follow their parent.
+  const bulkIds = useMemo(
+    () => group.families.map((family) => family.root.id),
+    [group.families],
+  );
+  const handleBulkArchive = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (bulkBusy || bulkIds.length === 0) return;
+    setBulkBusy(true);
+    try {
+      await Promise.all(
+        bulkIds.map((id) =>
+          fetch(`/api/sessions/${encodeURIComponent(id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ archived: true }),
+          }).catch(() => {}),
+        ),
+      );
+      onArchivedChange?.();
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [bulkBusy, bulkIds, onArchivedChange]);
   return (
     <div className="sidebar-session-day-group">
-      <button
-        onClick={onToggleCollapse}
-        title={t(collapsed ? "sidebar.expandGroup" : "sidebar.collapseGroup")}
+      <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 5,
+          gap: 4,
           width: "100%",
-          padding: "6px 10px",
-          background: "none",
-          border: "none",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          textAlign: "left",
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: "0.01em",
-          transition: "color 0.12s, background 0.12s",
+          padding: "0 4px 0 0",
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--bg-hover)";
-          e.currentTarget.style.color = "var(--text-muted)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "none";
-          e.currentTarget.style.color = "var(--text-dim)";
-        }}
+        onMouseEnter={() => setHeaderHovered(true)}
+        onMouseLeave={() => setHeaderHovered(false)}
       >
-        <svg
-          width="9"
-          height="9"
-          viewBox="0 0 10 10"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+        <button
+          onClick={onToggleCollapse}
+          title={t(collapsed ? "sidebar.expandGroup" : "sidebar.collapseGroup")}
           style={{
-            flexShrink: 0,
-            transform: collapsed ? "rotate(-90deg)" : "none",
-            transition: "transform 0.15s",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            flex: 1,
+            minWidth: 0,
+            padding: "6px 10px",
+            background: "none",
+            border: "none",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            textAlign: "left",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.01em",
+            transition: "color 0.12s, background 0.12s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--bg-hover)";
+            e.currentTarget.style.color = "var(--text-muted)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "none";
+            e.currentTarget.style.color = "var(--text-dim)";
           }}
         >
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-      </button>
+          <svg
+            width="9"
+            height="9"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{
+              flexShrink: 0,
+              transform: collapsed ? "rotate(-90deg)" : "none",
+              transition: "transform 0.15s",
+            }}
+          >
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        </button>
+        {/* Bulk archive for the whole day group. Shown only on the active
+            Conversations tab, revealed on header hover (collapsed or expanded)
+            so the label stays uncluttered otherwise. Kept visible mid-flight. */}
+        {!archivedView && (headerHovered || bulkBusy) && (
+          <button
+            onClick={handleBulkArchive}
+            disabled={bulkBusy}
+            title={t("sidebar.archiveAllTitle")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 24, height: 24, padding: 0, flexShrink: 0,
+              background: "none", border: "1px solid var(--border)",
+              borderRadius: 5, color: "var(--text-dim)",
+              cursor: bulkBusy ? "default" : "pointer",
+              fontSize: 10, opacity: bulkBusy ? 0.5 : 1,
+              transition: "background 0.12s, color 0.12s, border-color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              if (bulkBusy) return;
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.color = "var(--accent)";
+              e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "none";
+              e.currentTarget.style.color = "var(--text-dim)";
+              e.currentTarget.style.borderColor = "var(--border)";
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="21 8 21 21 3 21 3 8" />
+              <rect x="1" y="3" width="22" height="5" rx="1" />
+              <line x1="10" y1="12" x2="14" y2="12" />
+            </svg>
+          </button>
+        )}
+      </div>
       {!collapsed && group.families.map((family) => {
         const familySessions = [family.root, ...family.subagents];
         const displaySession = family.latestModified === family.root.modified
@@ -1653,8 +1843,10 @@ function SessionDayGroupSection({
             isSelected={familySessions.some((session) => session.id === selectedSessionId)}
             isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
             isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+            archivedView={archivedView}
             onClick={() => onSelectSession(family.root)}
             onRenamed={onRenamed}
+            onArchivedChange={onArchivedChange}
             onDeleted={(id) => onSessionDeleted?.(id)}
           />
         );
@@ -1846,8 +2038,10 @@ function SessionItem({
   isSelected,
   isRunning,
   isUnread,
+  archivedView = false,
   onClick,
   onRenamed,
+  onArchivedChange,
   onDeleted,
   depth = 0,
   hasChildren = false,
@@ -1858,8 +2052,10 @@ function SessionItem({
   isSelected: boolean;
   isRunning?: boolean;
   isUnread?: boolean;
+  archivedView?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
+  onArchivedChange?: () => void;
   onDeleted?: (id: string) => void;
   depth?: number;
   hasChildren?: boolean;
@@ -1946,6 +2142,25 @@ function SessionItem({
     e.stopPropagation();
     setConfirmDelete(false);
   }, []);
+
+  const [archiving, setArchiving] = useState(false);
+  const toggleArchive = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (session.transient) return;
+    setArchiving(true);
+    try {
+      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: !session.archived }),
+      });
+      onArchivedChange?.();
+    } catch {
+      // ignore
+    } finally {
+      setArchiving(false);
+    }
+  }, [session.id, session.transient, session.archived, onArchivedChange]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const handled = dispatchSessionRowContextMenu({
@@ -2143,6 +2358,7 @@ function SessionItem({
                   borderRadius: 7, color: "var(--text-muted)",
                   cursor: "pointer", flexShrink: 0,
                   transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                  opacity: archiving ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "var(--bg-selected)";
@@ -2159,6 +2375,40 @@ function SessionItem({
                   <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                 </svg>
               </button>
+              {/* Archive button — only on the active Conversations tab. Once a
+                  session is archived it lives in the Archive tab, where the
+                  group header's bulk unarchive handles restoration instead. */}
+              {!archivedView && (
+                <button
+                  onClick={toggleArchive}
+                  title={t("sidebar.archiveTitle")}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, padding: 0,
+                    background: "var(--bg-hover)", border: "1px solid var(--border)",
+                    borderRadius: 7, color: "var(--text-muted)",
+                    cursor: "pointer", flexShrink: 0,
+                    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                    opacity: archiving ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-selected)";
+                    e.currentTarget.style.color = "var(--accent)";
+                    e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text-muted)";
+                    e.currentTarget.style.borderColor = "var(--border)";
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="21 8 21 21 3 21 3 8" />
+                    <rect x="1" y="3" width="22" height="5" rx="1" />
+                    <line x1="10" y1="12" x2="14" y2="12" />
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={handleDeleteClick}
                 title={t("sidebar.deleteWithShiftClick")}

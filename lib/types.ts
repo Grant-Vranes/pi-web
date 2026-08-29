@@ -344,6 +344,9 @@ export interface SessionInfo {
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;
+  /** True when the session is filed in the sidebar Archive tab. Persisted in
+   *  ~/.pi/agent/archived-sessions.json, independent of the JSONL file itself. */
+  archived?: boolean;
 }
 
 export interface SessionContext {

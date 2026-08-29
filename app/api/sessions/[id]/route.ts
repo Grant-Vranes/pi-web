@@ -16,6 +16,7 @@ import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { computeSessionStats } from "@/lib/session-stats";
+import { archiveSession, forgetArchivedSession, unarchiveSession } from "@/lib/archived-sessions";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
@@ -108,15 +109,25 @@ export async function GET(
   }
 }
 
-// PATCH /api/sessions/[id]  body: { name: string }
+// PATCH /api/sessions/[id]  body: { name?: string, archived?: boolean }
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { name } = await req.json() as { name?: string };
-    if (typeof name !== "string") {
+    const body = await req.json() as { name?: string; archived?: boolean };
+
+    // Archive toggle is persisted in a sidecar file, not the JSONL session.
+    // It works for transient sessions too (no file resolution required).
+    if (typeof body.archived === "boolean") {
+      if (body.archived) archiveSession(id);
+      else unarchiveSession(id);
+      invalidateSessionListCache();
+      return NextResponse.json({ ok: true });
+    }
+
+    if (typeof body.name !== "string") {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
     const filePath = await resolveSessionPath(id);
@@ -124,7 +135,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
     const sm = SessionManager.open(filePath);
-    sm.appendSessionInfo(name.trim());
+    sm.appendSessionInfo(body.name.trim());
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -204,6 +215,7 @@ export async function DELETE(
 
     await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);
+    forgetArchivedSession(id);
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
