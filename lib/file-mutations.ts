@@ -117,15 +117,27 @@ function executeMutation(
     return { sourcePath: destinationPath, destinationPath, deleted: false };
   }
 
-  assertExistingAllowed(mutation.sourcePath, allowedRoots);
   if (mutation.type === "delete") {
+    const sourceStat = fs.lstatSync(mutation.sourcePath);
+    if (sourceStat.isSymbolicLink()) {
+      const sourceParent = resolverFor(mutation.sourcePath).dirname(mutation.sourcePath);
+      if (
+        !isFilePathAllowed(mutation.sourcePath, allowedRoots)
+        || !isExistingFilePathAllowed(sourceParent, allowedRoots)
+      ) {
+        throw new FileMutationError(403, "Access denied");
+      }
+    } else {
+      assertExistingAllowed(mutation.sourcePath, allowedRoots);
+    }
     fs.rmSync(mutation.sourcePath, {
-      recursive: fs.lstatSync(mutation.sourcePath).isDirectory(),
+      recursive: sourceStat.isDirectory(),
       force: false,
     });
     return { sourcePath: mutation.sourcePath, deleted: true };
   }
 
+  assertExistingAllowed(mutation.sourcePath, allowedRoots);
   const sourceResolver = resolverFor(mutation.sourcePath);
   const destinationDirectory = mutation.type === "rename"
     ? sourceResolver.dirname(mutation.sourcePath)
