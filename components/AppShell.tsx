@@ -969,6 +969,61 @@ export function AppShell() {
     );
   }, [selectedSession]);
 
+  // Open a native terminal window at the current session/new-session cwd.
+  // The server resolves the git branch (including worktree checkouts) and
+  // checks it out inside the new terminal so the user lands on the same
+  // branch the session is operating on.
+  const [terminalOpening, setTerminalOpening] = useState(false);
+  const handleOpenTerminal = useCallback(async () => {
+    const cwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
+    if (!cwd) return;
+    // The session's checked-out branch (undefined for new sessions / non-git).
+    // For worktree sessions this is the worktree's branch; the terminal will
+    // `git checkout` it to be safe (no-op when already on it).
+    const branch = selectedSession?.branch ?? null;
+    setTerminalOpening(true);
+    try {
+      // Prefer the Electron main-process path: it runs in the full graphical
+      // session, so terminal emulators launched there actually appear. The
+      // embedded Next.js server's process context often cannot open windows
+      // on Wayland GNOME, so the HTTP API is only a fallback for browser
+      // access.
+      const desktop = (typeof window !== "undefined" ? (window as unknown as { piDesktop?: { openTerminal?: (payload: { cwd: string; branch?: string | null }) => Promise<{ ok: boolean; error?: string }> } }).piDesktop : undefined);
+      let result: { ok: boolean; error?: string } | null = null;
+      if (desktop?.openTerminal) {
+        result = await desktop.openTerminal({ cwd, branch });
+      } else {
+        const response = await fetch("/api/terminal/open", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd, branch }),
+        });
+        if (response.ok) {
+          result = { ok: true };
+        } else {
+          const data = await response.json().catch(() => ({})) as { error?: string };
+          result = { ok: false, error: data.error ?? `HTTP ${response.status}` };
+        }
+      }
+      if (!result?.ok) {
+        // Spawn failed (no terminal emulator / permission error). Copy the
+        // intended command so the user can paste it into a terminal they open
+        // themselves — this is the reliable fallback on systems where GUI
+        // terminal launch from a background process is broken (e.g. some
+        // Wayland GNOME setups where gnome-terminal silently won't open).
+        const cmd = `cd ${JSON.stringify(cwd)}${branch ? ` && git checkout ${JSON.stringify(branch)}` : ""}`;
+        try { await copyText(cmd); } catch { /* clipboard may be unavailable */ }
+        window.alert(`${translate("terminal.openFailed")}: ${result?.error ?? "unknown"}\n\n${translate("terminal.commandCopied")}\n${cmd}`);
+      }
+    } catch (error) {
+      window.alert(`${translate("terminal.openFailed")}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // Brief feedback so the button doesn't appear to do nothing on systems
+      // where the terminal takes a moment to appear.
+      setTimeout(() => setTerminalOpening(false), 600);
+    }
+  }, [activeCwd, newSessionCwd, selectedSession, translate]);
+
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const newSessionDraftKey = selectedSession === null && effectiveNewSessionCwd
@@ -1319,6 +1374,59 @@ export function AppShell() {
             <path d="M12 7v5l3 2" />
           </svg>
           {!mobile && <span>{translate("history.label")}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void handleOpenTerminal();
+            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
+          }}
+          disabled={!showChat || terminalOpening}
+          title={translate("terminal.open")}
+          aria-label={translate("terminal.openShort")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%",
+            padding: mobile ? 0 : "0 12px",
+            background: "none",
+            border: "none",
+            borderTop: "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            color: !showChat ? "var(--text-dim)" : "var(--text-muted)",
+            cursor: !showChat ? "not-allowed" : "pointer",
+            opacity: !showChat ? 0.45 : 1,
+            flexShrink: 0,
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            transition: "color 0.1s, background 0.1s, opacity 0.1s",
+          }}
+          onMouseEnter={(event) => {
+            if (!showChat) return;
+            event.currentTarget.style.color = "var(--text)";
+            event.currentTarget.style.background = "var(--bg-hover)";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = !showChat ? "var(--text-dim)" : "var(--text-muted)";
+            event.currentTarget.style.background = "none";
+          }}
+          data-mobile-toolbar-action={mobile ? "terminal" : undefined}
+        >
+          {terminalOpening ? (
+            <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: !showChat ? "var(--text-dim)" : "var(--text-muted)", flexShrink: 0 }} aria-hidden="true">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+          )}
+          {!mobile && <span>{translate("terminal.openShort")}</span>}
         </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。

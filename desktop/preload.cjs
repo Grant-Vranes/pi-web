@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld("piDesktop", {
   getPathForFile(file) {
     return webUtils.getPathForFile(file);
   },
+  openTerminal(payload) {
+    return ipcRenderer.invoke("pi-web:open-terminal", payload);
+  },
 });
 
 const CONTEXT_MENU_CHANNEL = "pi-web:show-session-row-contextmenu";

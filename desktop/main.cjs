@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { app, BrowserWindow, Menu, Tray, nativeImage, shell, clipboard, dialog, ipcMain } = require("electron");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const net = require("net");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -17,6 +17,7 @@ const PORT = Number(configuredPort);
 const URL = `http://${HOST}:${PORT}`;
 const CONTEXT_MENU_CHANNEL = "pi-web:show-session-row-contextmenu";
 const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
+const OPEN_TERMINAL_CHANNEL = "pi-web:open-terminal";
 
 let mainWindow = null;
 let tray = null;
@@ -123,6 +124,58 @@ function shouldUseExternalDevServer() {
   return process.env.PI_WEB_DESKTOP_DEV === "1";
 }
 
+// Open a terminal on Linux, trying several emulators and verifying the
+// window actually appeared (gnome-terminal on some Wayland GNOME setups
+// silently exits 0 without opening a window due to a D-Bus factory mismatch).
+async function openLinuxTerminal(cwd, branch) {
+  const shellQuote = (v) => `'${String(v).replace(/'/g, `'\''`)}'`;
+  const sh = `cd ${shellQuote(cwd)}${branch ? ` && git checkout ${shellQuote(branch)} 2>/dev/null || true` : ""} && exec ${shellQuote(process.env.SHELL || "bash")}`;
+  const candidates = [
+    ["gnome-terminal", "--"],
+    ["xterm", "-e"],
+    ["konsole", "-e"],
+    ["xfce4-terminal", "-e"],
+    ["alacritty", "-e"],
+    ["kitty", "-e"],
+    ["mate-terminal", "-e"],
+    ["lxterminal", "-e"],
+    ["tilix", "-e"],
+    ["qterminal", "-e"],
+    ["terminology", "-e"],
+  ];
+  const pref = (process.env.TERMINAL || "").trim().split(/\s+/)[0];
+  if (pref) candidates.unshift([pref, "-e"]);
+  const available = candidates.filter(([name]) => {
+    const r = spawnSync("sh", ["-c", `command -v ${shellQuote(name)} >/dev/null 2>&1 && echo ok`], { timeout: 2000 });
+    return r.status === 0 && /ok/.test(r.stdout.toString());
+  });
+  if (available.length === 0) {
+    return { ok: false, error: "No terminal emulator found. Set the TERMINAL env var to your preferred one." };
+  }
+  const canVerify = spawnSync("sh", ["-c", "command -v wmctrl >/dev/null 2>&1 && echo ok"], { timeout: 2000 }).stdout.toString().includes("ok");
+  const beforeWindows = canVerify ? (spawnSync("wmctrl", ["-l"], { timeout: 2000 }).stdout.toString()) : "";
+  for (const [name, flag] of available) {
+    await new Promise((resolve) => {
+      const child = spawn(name, [flag, "sh", "-c", sh], { cwd, detached: true, stdio: "ignore" });
+      child.unref();
+      child.on("error", () => resolve());
+      // Give the emulator up to 2.5s to create a window.
+      setTimeout(resolve, 2500);
+    });
+    if (canVerify) {
+      const afterWindows = spawnSync("wmctrl", ["-l"], { timeout: 2000 }).stdout.toString();
+      if (afterWindows !== beforeWindows) {
+        return { ok: true };
+      }
+      // No new window: gnome-terminal may have silently failed. Try next.
+      continue;
+    }
+    // Cannot verify — assume the first available worked.
+    return { ok: true };
+  }
+  return { ok: false, error: "Terminal launched but no window appeared (known issue with gnome-terminal on some Wayland GNOME setups). Try installing xterm or setting the TERMINAL env var." };
+}
+
 function setupIpcHandlers() {
   ipcMain.handle(CONTEXT_MENU_CHANNEL, async (event, payload) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -212,6 +265,57 @@ function setupIpcHandlers() {
       noLink: true,
     });
     return result.response === 1;
+  });
+
+  // Open a native terminal window at the given cwd (and switch to branch).
+  // The Electron main process runs in the full graphical session, so GUI
+  // terminal emulators launched here actually appear — unlike the embedded
+  // Next.js server, whose process context often cannot open windows on
+  // Wayland GNOME.
+  ipcMain.handle(OPEN_TERMINAL_CHANNEL, async (_event, payload) => {
+    const { cwd, branch } = payload || {};
+    if (!cwd || typeof cwd !== "string") {
+      return { ok: false, error: "cwd is required" };
+    }
+    try {
+      const platform = process.platform;
+      const shellQuote = (v) => `'${String(v).replace(/'/g, `'\''`)}'`;
+      const psq = (v) => `"${String(v).replace(/"/g, '`"')}"`;
+      let command;
+      let args;
+      if (platform === "win32") {
+        const psCmd = `Set-Location -LiteralPath ${psq(cwd)}${branch ? `; try { git checkout ${psq(branch)} } catch {}` : ""}`;
+        const psLine = `pwsh.exe -NoExit -Command ${psCmd} 2>nul || powershell.exe -NoExit -Command ${psCmd}`;
+        command = process.env.COMSPEC || "cmd.exe";
+        args = ["/c", `start "" /B ${psLine}`];
+        const child = spawn(command, args, { cwd, detached: true, stdio: "ignore", shell: false });
+        child.unref();
+        return new Promise((resolve) => {
+          child.on("error", (err) => resolve({ ok: false, error: err.message }));
+          setTimeout(() => resolve({ ok: true }), 300);
+        });
+      } else if (platform === "darwin") {
+        const sh = `cd ${shellQuote(cwd)}${branch ? ` && git checkout ${shellQuote(branch)} 2>/dev/null || true` : ""} && exec ${shellQuote(process.env.SHELL || "bash")}`;
+        const escaped = sh.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        command = "osascript";
+        args = ["-e", `tell application "Terminal" to do script "${escaped}"`];
+        const child = spawn(command, args, { cwd, detached: true, stdio: "ignore" });
+        child.unref();
+        return new Promise((resolve) => {
+          child.on("error", (err) => resolve({ ok: false, error: err.message }));
+          setTimeout(() => resolve({ ok: true }), 300);
+        });
+      } else {
+        // Linux: try each terminal emulator in turn. On some Wayland GNOME
+        // setups gnome-terminal silently exits 0 without opening a window
+        // (D-Bus factory mismatch), so we verify a window actually appeared
+        // via wmctrl and fall through to the next candidate if not.
+        const result = await openLinuxTerminal(cwd, branch);
+        return result;
+      }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 }
 
