@@ -108,7 +108,7 @@ npx @agegr/pi-web@latest
 
 ### Downstream Session Context Menu
 
-Electron wrappers and other downstream integrations can provide a session-row
+Desktop wrappers and other downstream integrations can provide a session-row
 context menu without patching `SessionSidebar`. Listen for the cancelable
 `pi-web:session-row-contextmenu` browser event and call `preventDefault()`
 synchronously when the integration will handle it:
@@ -147,9 +147,9 @@ npm run lint
 
 Do not run `next build` or `npm run build` during normal development. It writes to `.next/` and can interfere with the development server; leave builds for release work.
 
-## Desktop (Electron)
+## Desktop (Tauri)
 
-The repository includes an Electron wrapper in `desktop/` that launches Pi Web locally and adds tray/background behavior plus a native session-row context menu integration.
+The repository includes a Tauri 2 desktop shell in `src-tauri/`. It renders Pi Web in the system WebView and packages Node.js, the Next.js production output, and runtime dependencies for the embedded local server. It also provides tray/background behavior, native session-row menus, file-manager reveal, and terminal launching.
 
 ### Debug desktop mode
 
@@ -157,16 +157,11 @@ The repository includes an Electron wrapper in `desktop/` that launches Pi Web l
 npm run desktop:dev
 ```
 
-This runs the web dev server and Electron together. Electron connects to `127.0.0.1:30141` and, in dev mode, reuses that external server.
+This runs the Next.js development server and Tauri together. The port comes from `.env.local` (default `30141`); Tauri development reuses that local server.
 
-### Run desktop app against production web assets
+### Production desktop build
 
-```bash
-npm run build
-npm run desktop:start
-```
-
-`desktop:start` launches Electron and starts embedded `pi-web` from `bin/pi-web.js` (or reuses an already-running server on the same port).
+The desktop packaging process builds Next.js and stages Node.js, `.next`, and runtime dependencies into Tauri resources automatically. Do not run `npm run build` manually during regular development.
 
 ### Package installers
 
@@ -174,26 +169,14 @@ npm run desktop:start
 npm run desktop:dist
 ```
 
-This runs `npm run build` and packages installers via `electron-builder`.
+This builds installers through Tauri and stages the embedded Node.js server runtime.
 Default targets:
 
 - macOS: `dmg`
 - Windows: `nsis`
 - Linux: `AppImage`
 
-Build artifacts are written under `dist/`.
-
-> **Linux tip:** `electron-builder`'s `fpm` step copies the unpacked app
-> into the system temp directory before compressing it into a `.deb`. If
-> `/tmp` is a small tmpfs (common on Linux), the copy can fail with
-> `Disk quota exceeded (Errno::EDQUOT)`. Redirect the temp directory to a
-> disk-backed path to avoid this:
->
-> ```bash
-> TMPDIR=$(pwd)/.build-tmp npm run desktop:dist
-> ```
->
-> `.build-tmp/` is already in `.gitignore`.
+Build artifacts are written under `src-tauri/target/release/bundle/`. The generated `desktop-runtime/` staging directory is ignored by Git.
 
 Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
 

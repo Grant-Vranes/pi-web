@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { buildDropPayload, type DropPayload } from "@/lib/dropped-paths";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriDesktop } from "@/lib/desktop-bridge";
+import { buildDropPayload, buildNativePathDropPayload, type DropPayload } from "@/lib/dropped-paths";
 
 export function useDragDrop(onDrop: (payload: DropPayload) => void) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -39,6 +41,25 @@ export function useDragDrop(onDrop: (payload: DropPayload) => void) {
     counterRef.current = 0;
     setIsDragOver(false);
     onDrop(payload);
+  }, [onDrop]);
+
+  // WebView drag events carry absolute filesystem paths directly. Electron
+  // previously exposed the same information through webUtils.getPathForFile.
+  useEffect(() => {
+    if (!isTauriDesktop()) return;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type === "enter") {
+        setIsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setIsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragOver(false);
+        const payload = buildNativePathDropPayload(event.payload.paths);
+        if (payload.hasNonImageFiles) onDrop(payload);
+      }
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
   }, [onDrop]);
 
   return { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop };

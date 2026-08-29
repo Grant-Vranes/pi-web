@@ -37,10 +37,10 @@
     "build": "next build --webpack",
     "start": "node bin/pi-web.js --hostname 127.0.0.1 --no-open",
     "start:lan": "node bin/pi-web.js --hostname 0.0.0.0 --no-open",
-    "desktop:dev": "node bin/start-desktop-dev.js",
-    "desktop:start": "cross-env PI_WEB_DESKTOP_DEV=0 electron desktop/main.cjs",
+    "desktop:dev": "node bin/start-tauri-dev.js",
+    "desktop:start": "tauri dev",
     "clean:dist": "node bin/clean-dist.js",
-    "desktop:dist": "npm run clean:dist && npm run build && electron-builder --publish never",
+    "desktop:dist": "npm run clean:dist && tauri build",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
@@ -50,6 +50,7 @@
     "@earendil-works/pi-ai": "0.84.3",
     "@earendil-works/pi-coding-agent": "0.84.3",
     "@earendil-works/pi-tui": "0.84.3",
+    "@tauri-apps/api": "^2.11.1",
     "ansi_up": "^6.0.6",
     "js-yaml": "^5.2.3",
     "next": "16.3.1",
@@ -62,9 +63,8 @@
   },
   "devDependencies": {
     "@lobehub/icons": "^5.6.0",
-    "concurrently": "^9.2.1",
-    "cross-env": "^10.0.0",
     "@tailwindcss/postcss": "^4.2.2",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25",
     "@types/proper-lockfile": "4.1.4",
@@ -72,8 +72,7 @@
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/web-push": "^3.6.4",
-    "electron": "^37.5.1",
-    "electron-builder": "^26.0.12",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "jiti": "^2.7.0",
@@ -91,49 +90,5 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5",
     "wait-on": "^8.0.5"
-  },
-  "build": {
-    "extraMetadata": {
-      "main": "desktop/main.cjs"
-    },
-    "appId": "com.agegr.piweb",
-    "productName": "Pi Web Desktop",
-    "executableName": "pi-web",
-    "asar": false,
-    "files": [
-      "app/**/*",
-      "bin/**/*",
-      "components/**/*",
-      "desktop/**/*",
-      "hooks/**/*",
-      "lib/**/*",
-      "public/**/*",
-      "next.config.ts",
-      "package.json",
-      ".next/**/*",
-      "!.next/cache/**/*",
-      "!.next/dev/**/*"
-    ],
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "icon": "public/icons/icon-white-512.png"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "public/icons/icon-white-512.png"
-    },
-    "linux": {
-      "artifactName": "pi-web-${version}-${arch}.${ext}",
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "maintainer": "agegr <noreply@users.noreply.github.com>",
-      "icon": "public/icons/icon-white-512.png"
-    }
   }
 }

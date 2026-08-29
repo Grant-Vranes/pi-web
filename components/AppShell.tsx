@@ -22,6 +22,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
+import { installTauriSessionContextMenu, isTauriDesktop, openDesktopTerminal } from "@/lib/desktop-bridge";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
@@ -129,6 +130,10 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
+
+  // Electron previously installed this listener from preload.cjs. Keep the
+  // event contract but install its Tauri implementation from the page.
+  useEffect(() => installTauriSessionContextMenu(), []);
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -983,15 +988,12 @@ export function AppShell() {
     const branch = selectedSession?.branch ?? null;
     setTerminalOpening(true);
     try {
-      // Prefer the Electron main-process path: it runs in the full graphical
-      // session, so terminal emulators launched there actually appear. The
-      // embedded Next.js server's process context often cannot open windows
-      // on Wayland GNOME, so the HTTP API is only a fallback for browser
-      // access.
-      const desktop = (typeof window !== "undefined" ? (window as unknown as { piDesktop?: { openTerminal?: (payload: { cwd: string; branch?: string | null }) => Promise<{ ok: boolean; error?: string }> } }).piDesktop : undefined);
+      // Tauri commands run in the graphical desktop session, where terminal
+      // emulators can create windows under Wayland. Browser deployments retain
+      // the HTTP route as their fallback.
       let result: { ok: boolean; error?: string } | null = null;
-      if (desktop?.openTerminal) {
-        result = await desktop.openTerminal({ cwd, branch });
+      if (isTauriDesktop()) {
+        result = await openDesktopTerminal({ cwd, branch });
       } else {
         const response = await fetch("/api/terminal/open", {
           method: "POST",

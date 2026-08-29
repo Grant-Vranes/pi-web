@@ -9,21 +9,8 @@ export interface DropPayload {
   hasNonImageFiles: boolean;
 }
 
-declare global {
-  interface Window {
-    piDesktop?: {
-      getPathForFile(file: File): string;
-    };
-  }
-}
-
 function isImageFile(file: File): boolean {
   return file.type.startsWith("image/");
-}
-
-function isDirectoryItem(item: DataTransferItem | undefined, file: File): boolean {
-  const entry = item?.webkitGetAsEntry?.();
-  return entry?.isDirectory === true || file.webkitRelativePath?.endsWith("/") === true;
 }
 
 function formatPathMention({ path, isDirectory }: DroppedPath): string {
@@ -61,6 +48,15 @@ function uniquePaths(paths: DroppedPath[]): DroppedPath[] {
   });
 }
 
+/** Build a non-image payload from Tauri's native drag-drop absolute paths. */
+export function buildNativePathDropPayload(paths: string[]): DropPayload {
+  return {
+    imageFiles: [],
+    hasNonImageFiles: paths.length > 0,
+    pathMentions: uniquePaths(paths.map((path) => ({ path, isDirectory: false }))).map(formatPathMention).join(""),
+  };
+}
+
 export function buildDropPayload(dataTransfer: DataTransfer): DropPayload {
   const files = Array.from(dataTransfer.files);
   const imageFiles = files.filter(isImageFile);
@@ -68,17 +64,9 @@ export function buildDropPayload(dataTransfer: DataTransfer): DropPayload {
   const hasNonImageFiles = nonImageFiles.length > 0;
   const paths: DroppedPath[] = [];
 
-  for (const file of nonImageFiles) {
-    const index = files.indexOf(file);
-    const nativePath = typeof window === "undefined"
-      ? ""
-      : window.piDesktop?.getPathForFile(file) ?? "";
-    if (!nativePath) continue;
-    paths.push({
-      path: nativePath,
-      isDirectory: isDirectoryItem(dataTransfer.items[index], file),
-    });
-  }
+  // Browser File objects deliberately do not expose local filesystem paths.
+  // Tauri native drops are handled in useDragDrop via WebviewWindow events;
+  // browser drops can still provide a file:// URI list below.
 
   if (paths.length === 0 && hasNonImageFiles) {
     for (const value of fileUrls(dataTransfer.getData("text/uri-list"))) {
