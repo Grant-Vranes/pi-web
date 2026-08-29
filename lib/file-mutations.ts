@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { isExistingFilePathAllowed, isFilePathAllowed } from "./file-access";
-import { isWindowsAbsolutePath, samePath } from "./paths";
+import { isWindowsAbsolutePath } from "./paths";
 
 export class FileMutationError extends Error {
   constructor(
@@ -139,9 +139,6 @@ function executeMutation(
   const destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
   assertParentAllowed(destinationPath, allowedRoots);
 
-  if (samePath(mutation.sourcePath, destinationPath)) {
-    throw new FileMutationError(400, "Source and destination are the same");
-  }
   assertVacant(destinationPath);
 
   if (
