@@ -19,9 +19,13 @@ test("uses each platform's native minimized-app indicator", () => {
 });
 
 test("updates the system-tray icon and tooltip when agent activity changes", () => {
-  assert.match(source, /tray\.setImage\(isRunning \? createRunningTrayIcon\(\) : createTrayIcon\(\)\)/);
+  assert.match(source, /if \(isRunning\) \{\s*startRunningTrayAnimation\(\);\s*\} else \{\s*stopRunningTrayAnimation\(\);/);
   assert.match(source, /tray\.setToolTip\(isRunning \? "Pi Web agent is running" : "Pi Web Desktop"\)/);
-  assert.match(source, /function getRunningTrayIconPath\(\)/);
-  assert.match(source, /function createRunningTrayIcon\(\) \{\s*const icon = nativeImage\.createFromPath\(getRunningTrayIconPath\(\)\)/);
+  assert.match(source, /const RUNNING_TRAY_FRAME_MS = 600/);
+  assert.match(source, /function getRunningTrayIconPath\(frame\)/);
+  assert.match(source, /function createRunningTrayIcon\(frame\) \{\s*const icon = nativeImage\.createFromPath\(getRunningTrayIconPath\(frame\)\)/);
+  assert.match(source, /function startRunningTrayAnimation\(\)/);
+  assert.match(source, /setInterval\([\s\S]*?RUNNING_TRAY_FRAME_MS/);
+  assert.match(source, /function stopRunningTrayAnimation\(\)[\s\S]*?clearInterval\(runningTrayFrameTimer\)/);
   assert.match(source, /function createTrayIcon\(\)[\s\S]*?icon\.setTemplateImage\(true\)/);
 });

@@ -19,12 +19,15 @@ const CONTEXT_MENU_CHANNEL = "pi-web:show-session-row-contextmenu";
 const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
 const OPEN_TERMINAL_CHANNEL = "pi-web:open-terminal";
 const RUNNING_STATUS_POLL_MS = 2500;
+const RUNNING_TRAY_FRAME_MS = 600;
 
 let mainWindow = null;
 let tray = null;
 let serverProc = null;
 let isQuitting = false;
 let runningStatusTimer = null;
+let runningTrayFrameTimer = null;
+let runningTrayFrame = 0;
 let appIsRunning = false;
 
 function createRunningOverlayIcon() {
@@ -39,7 +42,11 @@ function setRunningIndicator(isRunning) {
   appIsRunning = isRunning;
 
   if (tray) {
-    tray.setImage(isRunning ? createRunningTrayIcon() : createTrayIcon());
+    if (isRunning) {
+      startRunningTrayAnimation();
+    } else {
+      stopRunningTrayAnimation();
+    }
     tray.setToolTip(isRunning ? "Pi Web agent is running" : "Pi Web Desktop");
   }
 
@@ -105,8 +112,8 @@ function getTrayIconPath() {
   return path.join(app.getAppPath(), "public", "icons", "icon-white-192.png");
 }
 
-function getRunningTrayIconPath() {
-  return path.join(app.getAppPath(), "public", "icons", "tray-running.png");
+function getRunningTrayIconPath(frame) {
+  return path.join(app.getAppPath(), "public", "icons", frame === 0 ? "tray-running-dim.png" : "tray-running-bright.png");
 }
 
 function createTrayIcon() {
@@ -117,12 +124,29 @@ function createTrayIcon() {
   return icon;
 }
 
-function createRunningTrayIcon() {
-  const icon = nativeImage.createFromPath(getRunningTrayIconPath()).resize(getTrayIconSize(process.platform));
+function createRunningTrayIcon(frame) {
+  const icon = nativeImage.createFromPath(getRunningTrayIconPath(frame)).resize(getTrayIconSize(process.platform));
   if (process.platform === "darwin") {
     icon.setTemplateImage(true);
   }
   return icon;
+}
+
+function startRunningTrayAnimation() {
+  if (runningTrayFrameTimer || !tray) return;
+  runningTrayFrame = 0;
+  tray.setImage(createRunningTrayIcon(runningTrayFrame));
+  runningTrayFrameTimer = setInterval(() => {
+    runningTrayFrame = runningTrayFrame === 0 ? 1 : 0;
+    if (tray) tray.setImage(createRunningTrayIcon(runningTrayFrame));
+  }, RUNNING_TRAY_FRAME_MS);
+}
+
+function stopRunningTrayAnimation() {
+  if (runningTrayFrameTimer) clearInterval(runningTrayFrameTimer);
+  runningTrayFrameTimer = null;
+  runningTrayFrame = 0;
+  if (tray) tray.setImage(createTrayIcon());
 }
 
 function showMainWindow() {

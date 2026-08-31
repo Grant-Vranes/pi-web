@@ -1,199 +1,111 @@
-# Desktop Tray Running Indicator Implementation Plan
+# Desktop Tray Breathing Indicator Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show a visible running-state indicator in the Pi Web Desktop system-tray icon on Windows, Linux, and macOS whenever one or more agent sessions are active.
+**Goal:** Preserve the Pi tray icon and show a bottom-right breathing session indicator whenever any agent session is running.
 
-**Architecture:** `desktop/main.cjs` already obtains the aggregate running state through a 2.5-second request to `/api/agent/running`. Extend the existing state-transition handler to update the Electron `Tray` image and tooltip, while retaining the Windows taskbar overlay, macOS Dock badge, and Linux launcher badge. Keep all platform behavior in the main process and preserve the last known state when polling fails.
+**Architecture:** The existing 2.5-second `/api/agent/running` poll remains the sole aggregate-state source. The Electron main process owns a 600 ms two-frame animation timer while active, and stops it to restore the idle Pi icon as soon as no sessions run. Both frames are packaged PNGs, loaded through `nativeImage.createFromPath()` to avoid the empty SVG `NativeImage` regression.
 
-**Tech Stack:** Electron `Tray` and `nativeImage`, Node.js built-in test runner, CommonJS desktop main process.
+**Tech Stack:** Electron `Tray` and `nativeImage`, packaged PNG assets, Node.js built-in test runner.
 
 ## Global Constraints
 
-- The same tray running-state behavior must be present on Windows, Linux, and macOS.
-- The running state source remains `GET /api/agent/running`, polled every 2.5 seconds.
-- A failed poll must preserve the current indicator state.
-- The macOS tray image must remain a template image so it adapts to light and dark menu bars.
-- Keep existing taskbar, Dock, and launcher badge behavior.
-- Do not run `next build` during development.
+- Indicator represents any active session across all projects and background workspaces.
+- The original Pi icon remains visible behind a bottom-right status dot.
+- Windows and Linux use a green breathing dot; macOS uses a template-image system-color breathing dot for light/dark menu-bar legibility.
+- Running frames are switched every 600 ms and only while a session is active.
+- Both frames must be valid packaged PNGs loaded with `nativeImage.createFromPath()`.
+- Preserve the existing Windows taskbar, macOS Dock, and Linux launcher badges.
+- Do not run `next build`.
 
 ---
 
-### Task 1: Specify the native tray state transition with a failing regression test
+### Task 1: Add failing regression coverage for composite breathing frames
 
 **Files:**
 - Modify: `desktop/main.test.mjs`
 
 **Interfaces:**
-- Consumes: `desktop/main.cjs` source text.
-- Produces: regression assertions for `setRunningIndicator(isRunning)` updating `tray.setImage()` and `tray.setToolTip()` with separate running and idle values.
+- Consumes: desktop main-process source text.
+- Produces: assertions requiring two path-based running frames, a 600 ms frame timer, and cleanup when inactive.
 
-- [ ] **Step 1: Add a failing test that requires tray image and tooltip updates**
+- [ ] **Step 1: Write a failing test**
 
-Append this test to `desktop/main.test.mjs`:
+Replace the running-tray test body with assertions for `RUNNING_TRAY_FRAME_MS = 600`, `getRunningTrayIconPath(frame)`, `startRunningTrayAnimation()`, `stopRunningTrayAnimation()`, and `clearInterval(runningTrayFrameTimer)`.
 
-```js
-test("updates the system-tray icon and tooltip when agent activity changes", () => {
-  assert.match(source, /tray\.setImage\(isRunning \? createRunningTrayIcon\(\) : createTrayIcon\(\)\)/);
-  assert.match(source, /tray\.setToolTip\(isRunning \? "Pi Web agent is running" : "Pi Web Desktop"\)/);
-  assert.match(source, /function createRunningTrayIcon\(\)/);
-  assert.match(source, /if \(process\.platform === "darwin"\) \{[\s\S]*?icon\.setTemplateImage\(true\);[\s\S]*?\}/);
-});
-```
-
-- [ ] **Step 2: Run the focused test and verify it fails because tray state updates do not exist**
+- [ ] **Step 2: Verify red**
 
 Run:
 
 ```bash
-node --experimental-strip-types --test desktop/main.test.mjs
+/Users/akio/.nvm/versions/node/v22.22.0/bin/node --experimental-strip-types --test desktop/main.test.mjs
 ```
 
-Expected: the new `updates the system-tray icon and tooltip when agent activity changes` test fails, reporting that `tray.setImage` and `createRunningTrayIcon` are absent.
+Expected: the tray test fails because the timer and two-frame path are absent.
 
-- [ ] **Step 3: Commit the red test**
-
-```bash
-git add desktop/main.test.mjs
-git commit -m "test: cover desktop tray running state"
-```
-
-### Task 2: Update the tray presentation from the existing running-state poll
+### Task 2: Package original-icon breathing frames and implement timer lifecycle
 
 **Files:**
-- Modify: `desktop/main.cjs:29-73` (tray image helpers and `setRunningIndicator`)
-- Modify: `desktop/main.cjs:125-171` (tray construction)
+- Create: `public/icons/tray-running-dim.png`
+- Create: `public/icons/tray-running-bright.png`
+- Modify: `desktop/main.cjs`
+- Modify: `desktop/main.test.mjs`
 
 **Interfaces:**
-- Consumes: `isRunning: boolean` from `refreshRunningIndicator()` and the module-level `tray: Electron.Tray | null`.
-- Produces: `createTrayIcon(): Electron.NativeImage`, `createRunningTrayIcon(): Electron.NativeImage`, and an enhanced `setRunningIndicator(isRunning: boolean): void` that synchronizes native badges and the tray appearance.
+- Consumes: `setRunningIndicator(isRunning)`, module-level `tray`, and the existing aggregate running poll.
+- Produces: path-based dim/bright image frames and `startRunningTrayAnimation()` / `stopRunningTrayAnimation()` lifecycle helpers.
 
-- [ ] **Step 1: Add reusable idle and running tray-image helpers**
+- [ ] **Step 1: Create PNG assets**
 
-Replace the current standalone `getTrayIconPath()` helper with these helpers, keeping its existing path value:
+Generate two transparent PNGs from the original Pi icon. Each preserves the icon and adds a bottom-right circular dot with a separating outline. The dim asset uses lower opacity and the bright asset uses full opacity. Keep the asset generation outside runtime code, then commit only the resulting PNGs.
 
-```js
-function getTrayIconPath() {
-  return path.join(app.getAppPath(), "public", "icons", "icon-white-192.png");
-}
+- [ ] **Step 2: Add timer state and frame loading**
 
-function createTrayIcon() {
-  const icon = nativeImage.createFromPath(getTrayIconPath()).resize(getTrayIconSize(process.platform));
-  if (process.platform === "darwin") {
-    icon.setTemplateImage(true);
-  }
-  return icon;
-}
-
-function createRunningTrayIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2.5a13.5 13.5 0 1 0 12.4 8.2" fill="none" stroke="black" stroke-width="4" stroke-linecap="round"/><circle cx="26.2" cy="7.3" r="3.1" fill="black"/></svg>`;
-  const icon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`).resize(getTrayIconSize(process.platform));
-  if (process.platform === "darwin") {
-    icon.setTemplateImage(true);
-  }
-  return icon;
-}
-```
-
-The running glyph is monochrome and uses an incomplete circular mark plus a leading dot, ensuring macOS can tint it as a template image and Windows/Linux can display it without theme-dependent contrast assumptions.
-
-- [ ] **Step 2: Extend `setRunningIndicator` to synchronize the tray image and tooltip**
-
-At the top of `setRunningIndicator`, after assigning `appIsRunning`, add:
+Add:
 
 ```js
-  if (tray) {
-    tray.setImage(isRunning ? createRunningTrayIcon() : createTrayIcon());
-    tray.setToolTip(isRunning ? "Pi Web agent is running" : "Pi Web Desktop");
-  }
+const RUNNING_TRAY_FRAME_MS = 600;
+let runningTrayFrameTimer = null;
+let runningTrayFrame = 0;
 ```
 
-Leave the existing Windows, macOS, and Linux native-badge branches unchanged below it. This makes all three platforms update the tray icon from the same aggregate session state.
+Use a path helper selecting `tray-running-dim.png` for frame `0` and `tray-running-bright.png` for frame `1`. `createRunningTrayIcon(frame)` must use `nativeImage.createFromPath()` and preserve existing macOS `setTemplateImage(true)` behavior.
 
-- [ ] **Step 3: Reuse the idle helper during tray creation**
+- [ ] **Step 3: Add animation helpers**
 
-Replace the icon initialization at the beginning of `createTray()`:
+`startRunningTrayAnimation()` must set frame `0` immediately, then alternate frames every `RUNNING_TRAY_FRAME_MS`; it must be a no-op if already running. `stopRunningTrayAnimation()` must clear and null the timer, reset the frame index, and restore `createTrayIcon()`.
 
-```js
-  const icon = nativeImage.createFromPath(getTrayIconPath()).resize(getTrayIconSize(process.platform));
-  if (process.platform === "darwin") {
-    icon.setTemplateImage(true);
-  }
-```
+- [ ] **Step 4: Connect lifecycle to aggregate state**
 
-with:
+In `setRunningIndicator(isRunning)`, call `startRunningTrayAnimation()` on true and `stopRunningTrayAnimation()` on false. Leave tooltip and all existing platform-specific badges intact.
 
-```js
-  const icon = createTrayIcon();
-```
+- [ ] **Step 5: Verify green**
 
-The existing `tray.setToolTip("Pi Web Desktop")` remains the initial idle tooltip.
+Run the focused test, Electron native-image probe for both PNGs, TypeScript check, and changed-file lint.
 
-- [ ] **Step 4: Run the focused test and verify it passes**
-
-Run:
-
-```bash
-node --experimental-strip-types --test desktop/main.test.mjs
-```
-
-Expected: all desktop main-process tests pass, including the new tray state test.
-
-- [ ] **Step 5: Commit the implementation**
-
-```bash
-git add desktop/main.cjs desktop/main.test.mjs
-git commit -m "feat: show agent activity in desktop tray"
-```
-
-### Task 3: Verify the full repository checks and inspect the final change
+### Task 3: Commit and verify regression prevention
 
 **Files:**
 - Verify: `desktop/main.cjs`
 - Verify: `desktop/main.test.mjs`
+- Verify: `public/icons/tray-running-dim.png`
+- Verify: `public/icons/tray-running-bright.png`
 
-**Interfaces:**
-- Consumes: completed tray state handling from Task 2.
-- Produces: fresh automated evidence that the regression coverage and TypeScript checks pass.
-
-- [ ] **Step 1: Run the focused desktop regression suite**
-
-Run:
+- [ ] **Step 1: Commit**
 
 ```bash
-node --experimental-strip-types --test desktop/main.test.mjs
+git add desktop/main.cjs desktop/main.test.mjs public/icons/tray-running-dim.png public/icons/tray-running-bright.png docs/superpowers/specs/2026-08-31-desktop-tray-running-indicator-design.md docs/superpowers/plans/2026-08-31-desktop-tray-running-indicator.md
+git commit -m "feat: animate desktop tray activity"
 ```
 
-Expected: exit code 0 with every `desktop/main.test.mjs` test passing.
-
-- [ ] **Step 2: Run the complete test suite**
-
-Run:
+- [ ] **Step 2: Run final checks**
 
 ```bash
-npm test
-```
-
-Expected: exit code 0 with no test failures.
-
-- [ ] **Step 3: Run the TypeScript check**
-
-Run:
-
-```bash
+/Users/akio/.nvm/versions/node/v22.22.0/bin/node --experimental-strip-types --test desktop/main.test.mjs
 node_modules/.bin/tsc --noEmit
-```
-
-Expected: exit code 0 with no TypeScript diagnostics.
-
-- [ ] **Step 4: Inspect the committed diff and working tree**
-
-Run:
-
-```bash
+node_modules/.bin/eslint desktop/main.cjs desktop/main.test.mjs
+git diff --check
 git status --short
-git log --oneline -3
-git show --check --stat HEAD
 ```
 
-Expected: no unintended working-tree changes; the implementation commit contains only `desktop/main.cjs` and `desktop/main.test.mjs`.
+Expected: focused tests, typecheck, and changed-file lint pass; working tree is clean.
