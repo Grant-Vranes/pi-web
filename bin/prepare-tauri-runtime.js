@@ -57,6 +57,39 @@ copy(source(".next"), path.join(destination, ".next"), {
 // Next loads some transitive modules dynamically. Copying the installed tree is
 // deliberately conservative: it matches today's Electron runtime behavior and
 // avoids breaking dynamic extensions / pi SDK loading in the packaged app.
-copy(source("node_modules"), path.join(destination, "node_modules"));
+//
+// Native addon packages ship platform-specific prebuilds as sibling optional
+// packages (e.g. @tailwindcss/oxide-linux-x64-gnu alongside ...-x64-musl,
+// @mariozechner/clipboard-linux-arm64-gnu, @img/sharp-wasm32). Only the
+// prebuild matching the host platform is ever loaded by Node. The rest are
+// dead weight, and on Linux they actively break AppImage bundling: linuxdeploy
+// runs `ldd` over every staged ELF, and glibc's ldd exits non-zero on musl
+// objects ("invalid ELF header") or fails to find libc.musl-x86_64.so.1,
+// aborting the bundle. Exclude every non-host native prebuild directory so the
+// staged tree only carries ELFs linuxdeploy can inspect.
+const nativePrebuildExclude = (() => {
+  // Match the final path segment of a native-prebuild package directory.
+  // Keep this aligned with the platforms Node/npm use for optionalDeps triples.
+  const neverOnLinux = [
+    /-musl(?!-)/i, /linuxmusl/i, /-arm64-/i, /-arm-/i, /-riscv64-/i,
+    /-wasm32/i, /-win32-/i, /-darwin-/i, /-freebsd-/i, /-aix-/i, /-sunos-/i,
+    /-android-/i, /-linux-arm/i, /-linux-riscv/i,
+  ];
+  return process.platform === "linux" ? neverOnLinux : null;
+})();
+const segmentIsExcludedPrebuild = (segment) => {
+  if (!nativePrebuildExclude) return false;
+  return nativePrebuildExclude.some((re) => re.test(segment));
+};
+copy(source("node_modules"), path.join(destination, "node_modules"), {
+  filter: (entry) => {
+    if (!nativePrebuildExclude) return true;
+    const relative = path.relative(source("node_modules"), entry);
+    // Exclude when the offending prebuild package is the entry itself or any
+    // ancestor directory in the staged path (so nested copies under
+    // @earendil-works/pi-coding-agent/node_modules/... are dropped too).
+    return relative.split(path.sep).every((segment) => !segmentIsExcludedPrebuild(segment));
+  },
+});
 
 console.log(`[tauri-runtime] staged ${destination}`);
