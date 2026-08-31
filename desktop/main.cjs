@@ -105,6 +105,10 @@ function getTrayIconPath() {
   return path.join(app.getAppPath(), "public", "icons", "icon-white-192.png");
 }
 
+function getRunningTrayIconPath() {
+  return path.join(app.getAppPath(), "public", "icons", "tray-running.png");
+}
+
 function createTrayIcon() {
   const icon = nativeImage.createFromPath(getTrayIconPath()).resize(getTrayIconSize(process.platform));
   if (process.platform === "darwin") {
@@ -114,9 +118,7 @@ function createTrayIcon() {
 }
 
 function createRunningTrayIcon() {
-  // Keep this monochrome so macOS can tint it as a menu-bar template image.
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2.5a13.5 13.5 0 1 0 12.4 8.2" fill="none" stroke="black" stroke-width="4" stroke-linecap="round"/><circle cx="26.2" cy="7.3" r="3.1" fill="black"/></svg>`;
-  const icon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`).resize(getTrayIconSize(process.platform));
+  const icon = nativeImage.createFromPath(getRunningTrayIconPath()).resize(getTrayIconSize(process.platform));
   if (process.platform === "darwin") {
     icon.setTemplateImage(true);
   }

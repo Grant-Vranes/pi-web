@@ -21,6 +21,7 @@ test("uses each platform's native minimized-app indicator", () => {
 test("updates the system-tray icon and tooltip when agent activity changes", () => {
   assert.match(source, /tray\.setImage\(isRunning \? createRunningTrayIcon\(\) : createTrayIcon\(\)\)/);
   assert.match(source, /tray\.setToolTip\(isRunning \? "Pi Web agent is running" : "Pi Web Desktop"\)/);
-  assert.match(source, /function createRunningTrayIcon\(\)/);
+  assert.match(source, /function getRunningTrayIconPath\(\)/);
+  assert.match(source, /function createRunningTrayIcon\(\) \{\s*const icon = nativeImage\.createFromPath\(getRunningTrayIconPath\(\)\)/);
   assert.match(source, /function createTrayIcon\(\)[\s\S]*?icon\.setTemplateImage\(true\)/);
 });
