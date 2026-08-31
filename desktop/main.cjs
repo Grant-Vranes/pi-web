@@ -53,11 +53,35 @@ function showMainWindow() {
   if (!mainWindow) {
     return;
   }
+  // On Wayland/GNOME (and some other Linux compositors), focusing a freshly
+  // created window without an activation token is rejected by Mutter, so the
+  // window starts hidden behind other windows and only comes forward when the
+  // user clicks the tray (which supplies an activation token). Calling
+  // app.focus() first and deferring the show/focus to the next tick lets the
+  // compositor grant activation to the app before the window is revealed.
+  if (process.platform === "linux") {
+    app.focus({ steal: true });
+    setImmediate(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
+      mainWindow.focus();
+      mainWindow.moveTop();
+    });
+    return;
+  }
   mainWindow.show();
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
   mainWindow.focus();
+  mainWindow.moveTop();
   if (process.platform === "darwin") {
     app.dock.show();
   }
@@ -337,6 +361,7 @@ async function createWindow() {
     minWidth: 980,
     minHeight: 680,
     show: false,
+    focusable: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -359,6 +384,12 @@ async function createWindow() {
   mainWindow.once("ready-to-show", () => {
     showMainWindow();
   });
+  // Fallback: if the page is already loaded (e.g. restored from cache) the
+  // ready-to-show event may have fired during loadURL above before this
+  // listener was attached, leaving the window hidden on startup.
+  if (mainWindow.webContents.isLoading() === false) {
+    showMainWindow();
+  }
 }
 
 app.whenReady().then(async () => {

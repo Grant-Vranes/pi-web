@@ -11,6 +11,7 @@ import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { displayCwd } from "@/lib/cwd-display";
+import { getFileName } from "@/lib/file-paths";
 import type { WorktreeEntry, WorktreeState } from "@/lib/worktree-types";
 import { calendarDaysAgo, formatSessionTimestamp, formatDayLabel } from "@/lib/i18n/format";
 import type { Locale } from "@/lib/i18n/types";
@@ -306,12 +307,13 @@ function useScramble(target: string, running: boolean): string {
   return display;
 }
 
-function PiWebTitle() {
+function PiWebTitle({ projectName }: { projectName: string | null }) {
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Web";
+  const brandName = projectName ?? "Pi Web";
+  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : brandName;
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -342,6 +344,10 @@ function PiWebTitle() {
         color: showVersion ? "var(--accent)" : "var(--text)",
         fontFamily: "var(--font-mono)",
         minWidth: "6ch",
+        maxWidth: "100%",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       }}
     >
       {display}
@@ -996,7 +1002,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       {/* Workspace module */}
       <div className="sidebar-workspace-section">
         <div className="sidebar-brand-row">
-          <PiWebTitle />
+          <PiWebTitle projectName={selectedProject ? getFileName(selectedProject.root) : null} />
           <span className="sidebar-module-kicker">{t("sidebar.workspace")}</span>
         </div>
 

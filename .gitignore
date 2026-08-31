@@ -50,3 +50,10 @@ next-env.d.ts
 dist/
 
 e2e_*.mjs
+
+
+# desktop runtime
+desktop-runtime/
+
+src-tauri/gen/
+src-tauri/target/
