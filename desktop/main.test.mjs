@@ -17,6 +17,7 @@ test("uses each platform's native minimized-app indicator", () => {
   assert.match(source, /mainWindow\.setOverlayIcon\(isRunning \? createRunningOverlayIcon\(\) : null/);
   assert.match(source, /const RUNNING_DOCK_BADGE_FRAMES = \["🟢", "🟩"\]/);
   assert.match(source, /function setRunningDockBadge\(frame\)/);
+  assert.match(source, /app\.dock\.setBadge\(RUNNING_DOCK_BADGE_FRAMES\[frame\]\)/);
   assert.match(source, /app\.setBadgeCount\(isRunning \? 1 : 0\)/);
 });
 
