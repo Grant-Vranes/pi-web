@@ -17,3 +17,10 @@ test("uses each platform's native minimized-app indicator", () => {
   assert.match(source, /app\.dock\.setBadge\(isRunning \? "●" : ""\)/);
   assert.match(source, /app\.setBadgeCount\(isRunning \? 1 : 0\)/);
 });
+
+test("updates the system-tray icon and tooltip when agent activity changes", () => {
+  assert.match(source, /tray\.setImage\(isRunning \? createRunningTrayIcon\(\) : createTrayIcon\(\)\)/);
+  assert.match(source, /tray\.setToolTip\(isRunning \? "Pi Web agent is running" : "Pi Web Desktop"\)/);
+  assert.match(source, /function createRunningTrayIcon\(\)/);
+  assert.match(source, /function createTrayIcon\(\)[\s\S]*?icon\.setTemplateImage\(true\)/);
+});
