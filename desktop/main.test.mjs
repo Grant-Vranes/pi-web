@@ -15,7 +15,8 @@ test("polls the running-session endpoint for the native taskbar indicator", () =
 
 test("uses each platform's native minimized-app indicator", () => {
   assert.match(source, /mainWindow\.setOverlayIcon\(isRunning \? createRunningOverlayIcon\(\) : null/);
-  assert.match(source, /app\.dock\.setBadge\(isRunning \? "●" : ""\)/);
+  assert.match(source, /const RUNNING_DOCK_BADGE_FRAMES = \["🟢", "🟩"\]/);
+  assert.match(source, /function setRunningDockBadge\(frame\)/);
   assert.match(source, /app\.setBadgeCount\(isRunning \? 1 : 0\)/);
 });
 
@@ -27,7 +28,9 @@ test("updates the system-tray icon and tooltip when agent activity changes", () 
   assert.match(source, /function createRunningTrayIcon\(frame\) \{\s*const icon = nativeImage\.createFromPath\(getRunningTrayIconPath\(frame\)\)/);
   assert.match(source, /function startRunningTrayAnimation\(\)/);
   assert.match(source, /setInterval\([\s\S]*?RUNNING_TRAY_FRAME_MS/);
+  assert.match(source, /setRunningDockBadge\(runningTrayFrame\)/);
   assert.match(source, /function stopRunningTrayAnimation\(\)[\s\S]*?clearInterval\(runningTrayFrameTimer\)/);
+  assert.match(source, /app\.dock\.setBadge\(""\)/);
   assert.match(source, /function createTrayIcon\(\)[\s\S]*?icon\.setTemplateImage\(true\)/);
 });
 

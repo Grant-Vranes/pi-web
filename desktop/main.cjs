@@ -20,6 +20,7 @@ const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
 const OPEN_TERMINAL_CHANNEL = "pi-web:open-terminal";
 const RUNNING_STATUS_POLL_MS = 2500;
 const RUNNING_TRAY_FRAME_MS = 600;
+const RUNNING_DOCK_BADGE_FRAMES = ["🟢", "🟩"];
 
 let mainWindow = null;
 let tray = null;
@@ -29,6 +30,16 @@ let runningStatusTimer = null;
 let runningTrayFrameTimer = null;
 let runningTrayFrame = 0;
 let appIsRunning = false;
+
+function setRunningDockBadge(frame) {
+  if (process.platform === "darwin") {
+    try {
+      app.dock.setBadge(RUNNING_DOCK_BADGE_FRAMES[frame]);
+    } catch (e) {
+      // In some test or headless environments app.dock may be unavailable.
+    }
+  }
+}
 
 function createRunningOverlayIcon() {
   // Windows taskbar overlays are 16 × 16 px. The opaque outer ring keeps the
@@ -41,20 +52,23 @@ function setRunningIndicator(isRunning) {
   if (appIsRunning === isRunning) return;
   appIsRunning = isRunning;
 
+  // Start or stop the shared running animation lifecycle. This updates the
+  // tray icon when present and the macOS Dock badge even when no tray exists.
+  if (isRunning) {
+    startRunningTrayAnimation();
+  } else {
+    stopRunningTrayAnimation();
+  }
+
   if (tray) {
-    if (isRunning) {
-      startRunningTrayAnimation();
-    } else {
-      stopRunningTrayAnimation();
-    }
     tray.setToolTip(isRunning ? "Pi Web agent is running" : "Pi Web Desktop");
   }
 
   if (process.platform === "win32" && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setOverlayIcon(isRunning ? createRunningOverlayIcon() : null, isRunning ? "Pi Web agent is running" : "");
   } else if (process.platform === "darwin") {
-    // macOS has no taskbar overlay API; a dot badge is the native equivalent.
-    app.dock.setBadge(isRunning ? "●" : "");
+    // macOS Dock badge is managed by the running animation lifecycle
+    // (setRunningDockBadge). No immediate action required here.
   } else if (process.platform === "linux") {
     // Supported by Unity and other Linux shells that expose launcher badges.
     app.setBadgeCount(isRunning ? 1 : 0);
@@ -133,12 +147,14 @@ function createRunningTrayIcon(frame) {
 }
 
 function startRunningTrayAnimation() {
-  if (runningTrayFrameTimer || !tray) return;
+  if (runningTrayFrameTimer || (!tray && process.platform !== "darwin")) return;
   runningTrayFrame = 0;
-  tray.setImage(createRunningTrayIcon(runningTrayFrame));
+  if (tray) tray.setImage(createRunningTrayIcon(runningTrayFrame));
+  setRunningDockBadge(runningTrayFrame);
   runningTrayFrameTimer = setInterval(() => {
     runningTrayFrame = runningTrayFrame === 0 ? 1 : 0;
     if (tray) tray.setImage(createRunningTrayIcon(runningTrayFrame));
+    setRunningDockBadge(runningTrayFrame);
   }, RUNNING_TRAY_FRAME_MS);
 }
 
@@ -147,6 +163,13 @@ function stopRunningTrayAnimation() {
   runningTrayFrameTimer = null;
   runningTrayFrame = 0;
   if (tray) tray.setImage(createTrayIcon());
+  if (process.platform === "darwin") {
+    try {
+      app.dock.setBadge("");
+    } catch (e) {
+      // ignore
+    }
+  }
 }
 
 function showMainWindow() {
