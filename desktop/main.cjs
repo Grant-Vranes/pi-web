@@ -18,11 +18,62 @@ const URL = `http://${HOST}:${PORT}`;
 const CONTEXT_MENU_CHANNEL = "pi-web:show-session-row-contextmenu";
 const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
 const OPEN_TERMINAL_CHANNEL = "pi-web:open-terminal";
+const RUNNING_STATUS_POLL_MS = 2500;
 
 let mainWindow = null;
 let tray = null;
 let serverProc = null;
 let isQuitting = false;
+let runningStatusTimer = null;
+let appIsRunning = false;
+
+function createRunningOverlayIcon() {
+  // Windows taskbar overlays are 16 × 16 px. The opaque outer ring keeps the
+  // green lamp legible on both light and dark taskbar icons.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#1b1b1b"/><circle cx="8" cy="8" r="4.5" fill="#22c55e"/></svg>`;
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+}
+
+function setRunningIndicator(isRunning) {
+  if (appIsRunning === isRunning) return;
+  appIsRunning = isRunning;
+
+  if (process.platform === "win32" && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setOverlayIcon(isRunning ? createRunningOverlayIcon() : null, isRunning ? "Pi Web agent is running" : "");
+  } else if (process.platform === "darwin") {
+    // macOS has no taskbar overlay API; a dot badge is the native equivalent.
+    app.dock.setBadge(isRunning ? "●" : "");
+  } else if (process.platform === "linux") {
+    // Supported by Unity and other Linux shells that expose launcher badges.
+    app.setBadgeCount(isRunning ? 1 : 0);
+  }
+}
+
+async function refreshRunningIndicator() {
+  if (isQuitting) return;
+  try {
+    const response = await fetch(`${URL}/api/agent/running`, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!isQuitting) {
+      setRunningIndicator(Array.isArray(data.runningSessionIds) && data.runningSessionIds.length > 0);
+    }
+  } catch {
+    // Preserve the last known indicator while the embedded server is restarting.
+  }
+}
+
+function startRunningIndicatorPolling() {
+  if (runningStatusTimer) return;
+  void refreshRunningIndicator();
+  runningStatusTimer = setInterval(() => void refreshRunningIndicator(), RUNNING_STATUS_POLL_MS);
+}
+
+function stopRunningIndicatorPolling() {
+  if (runningStatusTimer) clearInterval(runningStatusTimer);
+  runningStatusTimer = null;
+  setRunningIndicator(false);
+}
 
 function isPortReachable(host, port, timeoutMs = 800) {
   return new Promise((resolve) => {
@@ -390,6 +441,7 @@ async function createWindow() {
   if (mainWindow.webContents.isLoading() === false) {
     showMainWindow();
   }
+  startRunningIndicatorPolling();
 }
 
 app.whenReady().then(async () => {
@@ -414,6 +466,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  stopRunningIndicatorPolling();
   if (serverProc && !serverProc.killed) {
     serverProc.kill("SIGTERM");
   }
