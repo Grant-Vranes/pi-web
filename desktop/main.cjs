@@ -154,10 +154,10 @@ function createTrayIcon() {
 }
 
 function createRunningTrayIcon(frame) {
+  // Running frames contain a colored green breathing dot and must render as-is,
+  // so they are NOT marked as template images (template mode would suppress
+  // the green channel and make the dot invisible on macOS).
   const icon = nativeImage.createFromPath(getRunningTrayIconPath(frame)).resize(getTrayIconSize(process.platform));
-  if (process.platform === "darwin") {
-    icon.setTemplateImage(true);
-  }
   return icon;
 }
 

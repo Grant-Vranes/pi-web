@@ -26,7 +26,10 @@ test("updates the system-tray icon and tooltip when agent activity changes", () 
   assert.match(source, /tray\.setToolTip\(isRunning \? "Pi Web agent is running" : "Pi Web Desktop"\)/);
   assert.match(source, /const RUNNING_TRAY_FRAME_MS = 600/);
   assert.match(source, /function getRunningTrayIconPath\(frame\)/);
-  assert.match(source, /function createRunningTrayIcon\(frame\) \{\s*const icon = nativeImage\.createFromPath\(getRunningTrayIconPath\(frame\)\)/);
+  assert.match(source, /function createRunningTrayIcon\(frame\) \{[\s\S]*?\n\}/);
+  // Running frames carry a colored green dot, so they must NOT be template images.
+  const runningFn = source.match(/function createRunningTrayIcon\(frame\) \{([\s\S]*?)\n\}/)[1];
+  assert.doesNotMatch(runningFn, /setTemplateImage/, "running tray icon must not be a template image");
   assert.match(source, /function startRunningTrayAnimation\(\)/);
   assert.match(source, /setInterval\([\s\S]*?RUNNING_TRAY_FRAME_MS/);
   assert.match(source, /setRunningDockIcon\(runningTrayFrame\)/);
