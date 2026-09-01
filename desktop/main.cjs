@@ -20,7 +20,7 @@ const CONFIRM_DELETE_CHANNEL = "pi-web:confirm-delete-session";
 const OPEN_TERMINAL_CHANNEL = "pi-web:open-terminal";
 const RUNNING_STATUS_POLL_MS = 2500;
 const RUNNING_TRAY_FRAME_MS = 600;
-const RUNNING_DOCK_BADGE_FRAMES = ["🟢", "🟩"];
+const RUNNING_DOCK_ICON_FRAMES = ["dock-running-dim.png", "dock-running-bright.png"];
 
 let mainWindow = null;
 let tray = null;
@@ -31,10 +31,19 @@ let runningTrayFrameTimer = null;
 let runningTrayFrame = 0;
 let appIsRunning = false;
 
-function setRunningDockBadge(frame) {
+function getRunningDockIconPath(frame) {
+  return path.join(app.getAppPath(), "public", "icons", RUNNING_DOCK_ICON_FRAMES[frame]);
+}
+
+function setRunningDockIcon(frame) {
+  // Replaces the macOS Dock app icon with a composited frame that shows a
+  // green breathing dot in the top-right corner. Unlike setBadge() (whose
+  // position and color are fixed by the system), setIcon() gives full control
+  // over placement and appearance, matching the tray indicator's behavior.
   if (process.platform === "darwin") {
     try {
-      app.dock.setBadge(RUNNING_DOCK_BADGE_FRAMES[frame]);
+      const icon = nativeImage.createFromPath(getRunningDockIconPath(frame));
+      app.dock.setIcon(icon);
     } catch (e) {
       // In some test or headless environments app.dock may be unavailable.
     }
@@ -67,8 +76,8 @@ function setRunningIndicator(isRunning) {
   if (process.platform === "win32" && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setOverlayIcon(isRunning ? createRunningOverlayIcon() : null, isRunning ? "Pi Web agent is running" : "");
   } else if (process.platform === "darwin") {
-    // macOS Dock badge is managed by the running animation lifecycle
-    // (setRunningDockBadge). No immediate action required here.
+    // macOS Dock icon is managed by the running animation lifecycle
+    // (setRunningDockIcon). No immediate action required here.
   } else if (process.platform === "linux") {
     // Supported by Unity and other Linux shells that expose launcher badges.
     app.setBadgeCount(isRunning ? 1 : 0);
@@ -150,11 +159,11 @@ function startRunningTrayAnimation() {
   if (runningTrayFrameTimer || (!tray && process.platform !== "darwin")) return;
   runningTrayFrame = 0;
   if (tray) tray.setImage(createRunningTrayIcon(runningTrayFrame));
-  setRunningDockBadge(runningTrayFrame);
+  setRunningDockIcon(runningTrayFrame);
   runningTrayFrameTimer = setInterval(() => {
     runningTrayFrame = runningTrayFrame === 0 ? 1 : 0;
     if (tray) tray.setImage(createRunningTrayIcon(runningTrayFrame));
-    setRunningDockBadge(runningTrayFrame);
+    setRunningDockIcon(runningTrayFrame);
   }, RUNNING_TRAY_FRAME_MS);
 }
 
@@ -165,7 +174,7 @@ function stopRunningTrayAnimation() {
   if (tray) tray.setImage(createTrayIcon());
   if (process.platform === "darwin") {
     try {
-      app.dock.setBadge("");
+      app.dock.setIcon(null);
     } catch (e) {
       // ignore
     }
