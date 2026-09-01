@@ -31,7 +31,7 @@ test("updates the system-tray icon and tooltip when agent activity changes", () 
   assert.match(source, /setInterval\([\s\S]*?RUNNING_TRAY_FRAME_MS/);
   assert.match(source, /setRunningDockIcon\(runningTrayFrame\)/);
   assert.match(source, /function stopRunningTrayAnimation\(\)[\s\S]*?clearInterval\(runningTrayFrameTimer\)/);
-  assert.match(source, /app\.dock\.setIcon\(null\)/);
+  assert.match(source, /app\.dock\.setIcon\(nativeImage\.createFromPath\(getBaseDockIconPath\(\)\)\)/);
   assert.match(source, /function createTrayIcon\(\)[\s\S]*?icon\.setTemplateImage\(true\)/);
 });
 

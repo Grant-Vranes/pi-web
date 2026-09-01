@@ -35,6 +35,12 @@ function getRunningDockIconPath(frame) {
   return path.join(app.getAppPath(), "public", "icons", RUNNING_DOCK_ICON_FRAMES[frame]);
 }
 
+function getBaseDockIconPath() {
+  // The icon electron-builder packages as the mac Dock icon; restoring it on
+  // idle returns the Dock to its default appearance.
+  return path.join(app.getAppPath(), "public", "icons", "icon-white-512.png");
+}
+
 function setRunningDockIcon(frame) {
   // Replaces the macOS Dock app icon with a composited frame that shows a
   // green breathing dot in the top-right corner. Unlike setBadge() (whose
@@ -62,7 +68,7 @@ function setRunningIndicator(isRunning) {
   appIsRunning = isRunning;
 
   // Start or stop the shared running animation lifecycle. This updates the
-  // tray icon when present and the macOS Dock badge even when no tray exists.
+  // tray icon when present and the macOS Dock icon even when no tray exists.
   if (isRunning) {
     startRunningTrayAnimation();
   } else {
@@ -174,7 +180,9 @@ function stopRunningTrayAnimation() {
   if (tray) tray.setImage(createTrayIcon());
   if (process.platform === "darwin") {
     try {
-      app.dock.setIcon(null);
+      // app.dock.setIcon() accepts NativeImage | string (not null), so restore
+      // the base app icon to clear the running frame.
+      app.dock.setIcon(nativeImage.createFromPath(getBaseDockIconPath()));
     } catch (e) {
       // ignore
     }
