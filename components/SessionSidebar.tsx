@@ -21,6 +21,15 @@ import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import type { FileTabMutation } from "./file-tab-state";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
 
+/** Shared display title for a session: stored name, else the first message
+ *  (SDK-expanded skill blocks collapsed back to /skill commands), else a
+ *  short id fallback. Used by the session row and the project-rail tooltip
+ *  so both surfaces label a session the same way. */
+function sessionDisplayName(session: SessionInfo): string {
+  const displayFirstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
+  return session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12);
+}
+
 function ToolbarIconButton({
   onClick,
   title,
@@ -1900,7 +1909,7 @@ function ProjectRail({
 }
 
 /** Right-side floating card for a project tile. Lists the project's running
- *  sessions (branch + model) and any sessions that finished in the
+ *  sessions (title + branch + model) and any sessions that finished in the
  *  background and are waiting for the user to check them (unread). Rendered
  *  through a portal at the document root with position:fixed so it escapes
  *  the rail's overflow:hidden ancestors and always stacks on top. `anchorEl`
@@ -2021,10 +2030,12 @@ function ProjectRailTooltip({
           <ul className="project-rail-tooltip-list">
             {running.map(({ session, detail }) => {
               const modelText = detail?.model ? `${detail.model.provider}/${detail.model.id}` : t("sidebar.modelUnknown");
+              const sessionTitle = sessionDisplayName(session);
               return (
               <li key={session.id} className="project-rail-tooltip-card">
                 <span className={`project-rail-tooltip-dot${detail?.streaming ? " is-streaming" : detail?.compacting ? " is-compacting" : detail?.bashRunning ? " is-bash" : ""}`} aria-hidden="true" />
                 <span className="project-rail-tooltip-card-body">
+                  <span className="project-rail-tooltip-card-title" title={sessionTitle}>{sessionTitle}</span>
                   <span className="project-rail-tooltip-card-row">
                     <svg className="project-rail-tooltip-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
                     <span className="project-rail-tooltip-branch-text" title={session.branch ?? ""}>{session.branch ?? t("sidebar.noBranch")}</span>
@@ -2045,10 +2056,13 @@ function ProjectRailTooltip({
             {t("sidebar.projectUnreadCount", { count: unread.length })}
           </div>
           <ul className="project-rail-tooltip-list">
-            {unread.map((session) => (
+            {unread.map((session) => {
+              const sessionTitle = sessionDisplayName(session);
+              return (
               <li key={session.id} className="project-rail-tooltip-card">
                 <span className="project-rail-tooltip-dot is-done" aria-hidden="true" />
                 <span className="project-rail-tooltip-card-body">
+                  <span className="project-rail-tooltip-card-title" title={sessionTitle}>{sessionTitle}</span>
                   <span className="project-rail-tooltip-card-row">
                     <svg className="project-rail-tooltip-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
                     <span className="project-rail-tooltip-branch-text" title={session.branch ?? ""}>{session.branch ?? t("sidebar.noBranch")}</span>
@@ -2058,7 +2072,8 @@ function ProjectRailTooltip({
                   </span>
                 </span>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -2377,7 +2392,7 @@ function SessionItem({
   // back to the compact /skill:name args command the user typed before using
   // it as the auto-name fallback, mirroring MessageView's rendering.
   const displayFirstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
-  const title = session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const title = sessionDisplayName(session);
 
   const startRename = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
