@@ -1698,6 +1698,160 @@ span.token.table {
   border: 1px dashed color-mix(in srgb, var(--border) 85%, transparent);
   border-radius: 9px;
 }
+/* Tile wraps a rail item + its hover tooltip. It is the positioning context
+   for the right-side floating card. */
+.project-rail-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+}
+.project-rail-tile .project-rail-item {
+  width: 100%;
+  height: 100%;
+  flex: none;
+}
+.project-rail-tooltip {
+  position: fixed;
+  z-index: 9999;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  user-select: none;
+  /* left/top/transform come from inline style (viewport-space coords). */
+  /* Fade in quickly; the card only exists while hovering. */
+  animation: project-rail-tooltip-in 110ms ease-out;
+}
+/* Anchor nub on the tooltip's left edge, pointing at the tile. */
+.project-rail-tooltip::before {
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  transform: translateY(-50%) rotate(45deg);
+  content: "";
+}
+@keyframes project-rail-tooltip-in {
+  from { opacity: 0; transform: translateY(-50%) translateX(-4px); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+.project-rail-tooltip-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 7px;
+  margin-bottom: 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.project-rail-tooltip-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-rail-tooltip-path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-rail-tooltip-section { display: flex; flex-direction: column; gap: 4px; }
+.project-rail-tooltip-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.project-rail-tooltip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.project-rail-tooltip-card {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-panel) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.project-rail-tooltip-dot {
+  margin-top: 6px;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: project-rail-tooltip-pulse 1.5s ease-out infinite;
+}
+.project-rail-tooltip-dot.is-streaming { background: var(--accent); }
+.project-rail-tooltip-dot.is-bash { background: #f59e0b; }
+.project-rail-tooltip-dot.is-compacting { background: #8b5cf6; }
+.project-rail-tooltip-dot.is-done { background: #0891b2; animation: none; }
+.project-rail-tooltip-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.project-rail-tooltip-card-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.project-rail-tooltip-branch-icon {
+  flex: 0 0 11px;
+  color: var(--text-dim);
+}
+.project-rail-tooltip-branch-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-rail-tooltip-card-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-rail-tooltip-muted { color: var(--text-dim); }
+.project-rail-tooltip-empty { color: var(--text-muted); }
+.project-rail-tooltip-unread { font-size: 10.5px; color: var(--text-dim); }
+.project-rail-tooltip-done { color: #0891b2; font-weight: 600; }
+@keyframes project-rail-tooltip-pulse {
+  65% { box-shadow: 0 0 0 4px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
 @keyframes project-rail-spin { to { transform: rotate(360deg); } }
 @keyframes project-rail-pulse {
   65% { box-shadow: 0 0 0 5px transparent; }
@@ -1714,6 +1868,67 @@ span.token.table {
   .project-rail-item.is-drop-after::before { animation: none; }
   .project-rail-item,
   .project-rail-add { transition: none; }
+  .project-rail-tooltip,
+  .project-rail-tooltip-dot { animation: none; }
+}
+
+/* Hover tooltip for a session row title — shows the full (untruncated) title
+   with wrapping and a scrollbar when it overflows, so long titles stay
+   readable. Mirrors the project-rail tooltip look. */
+.session-title-tooltip {
+  min-width: 160px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  user-select: none;
+  /* Fill the maxHeight so the scrollable body can scroll when the title is
+     very long; the body clips + scrolls, the meta row stays pinned. */
+  display: flex;
+  flex-direction: column;
+  animation: session-title-tooltip-in 110ms ease-out;
+}
+.session-title-tooltip-body {
+  /* Wrap long titles; scroll vertically when they exceed the card height. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Match the row title weight so it reads as the same text, just expanded. */
+  font-weight: 500;
+  color: var(--text);
+  scrollbar-width: thin;
+}
+.session-title-tooltip-body::-webkit-scrollbar { width: 6px; }
+.session-title-tooltip-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-dim) 45%, transparent);
+  border-radius: 3px;
+}
+.session-title-tooltip-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+}
+@keyframes session-title-tooltip-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-title-tooltip { animation: none; }
 }
 
 /* Desktop sidebar: animate width */

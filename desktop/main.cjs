@@ -291,33 +291,57 @@ function shouldUseExternalDevServer() {
 async function openLinuxTerminal(cwd, branch) {
   const shellQuote = (v) => `'${String(v).replace(/'/g, `'\''`)}'`;
   const sh = `cd ${shellQuote(cwd)}${branch ? ` && git checkout ${shellQuote(branch)} 2>/dev/null || true` : ""} && exec ${shellQuote(process.env.SHELL || "bash")}`;
+  // Build the argv (excluding the leading command) for a given launcher style.
+  // - "xdg": xdg-terminal-exec — pass command+args directly (freedesktop std).
+  // - "--":  gnome-terminal / xfce4-terminal separate options from command.
+  // - "-e":  xterm / konsole / kitty / alacritty / foot / wezterm …
+  const buildArgs = (flag) => {
+    if (flag === "xdg") return ["sh", "-c", sh];
+    if (flag === "--") return ["--", "sh", "-c", sh];
+    return ["-e", "sh", "-c", sh];
+  };
+  // Candidate list. xdg-terminal-exec first (freedesktop standard, works
+  // around gnome-terminal's D-Bus factory issues on some Wayland GNOME
+  // setups), then standalone emulators immune to the factory problem, then
+  // D-Bus-based ones as a last resort.
   const candidates = [
-    ["gnome-terminal", "--"],
+    ["xdg-terminal-exec", "xdg"],
     ["xterm", "-e"],
-    ["konsole", "-e"],
-    ["xfce4-terminal", "-e"],
-    ["alacritty", "-e"],
     ["kitty", "-e"],
+    ["alacritty", "-e"],
+    ["wezterm", "-e"],
+    ["foot", "-e"],
+    ["konsole", "-e"],
+    ["xfce4-terminal", "--"],
     ["mate-terminal", "-e"],
     ["lxterminal", "-e"],
     ["tilix", "-e"],
     ["qterminal", "-e"],
     ["terminology", "-e"],
+    ["ptyxis", "-e"],
+    ["kgx", "-e"],
+    // gnome-terminal last: on Wayland GNOME it may silently fail to open a
+    // window when spawned from a background process (D-Bus factory mismatch).
+    ["gnome-terminal", "--"],
   ];
   const pref = (process.env.TERMINAL || "").trim().split(/\s+/)[0];
-  if (pref) candidates.unshift([pref, "-e"]);
+  if (pref) {
+    candidates.unshift([pref, pref === "gnome-terminal" || pref === "xfce4-terminal" ? "--" : "-e"]);
+  }
   const available = candidates.filter(([name]) => {
     const r = spawnSync("sh", ["-c", `command -v ${shellQuote(name)} >/dev/null 2>&1 && echo ok`], { timeout: 2000 });
     return r.status === 0 && /ok/.test(r.stdout.toString());
   });
   if (available.length === 0) {
-    return { ok: false, error: "No terminal emulator found. Set the TERMINAL env var to your preferred one." };
+    return { ok: false, error: "No terminal emulator found. Set the TERMINAL env var (e.g. TERMINAL=xterm) or install xterm (apt install xterm / dnf install xterm)." };
   }
   const canVerify = spawnSync("sh", ["-c", "command -v wmctrl >/dev/null 2>&1 && echo ok"], { timeout: 2000 }).stdout.toString().includes("ok");
   const beforeWindows = canVerify ? (spawnSync("wmctrl", ["-l"], { timeout: 2000 }).stdout.toString()) : "";
+  const attempted = [];
   for (const [name, flag] of available) {
+    attempted.push(name);
     await new Promise((resolve) => {
-      const child = spawn(name, [flag, "sh", "-c", sh], { cwd, detached: true, stdio: "ignore" });
+      const child = spawn(name, buildArgs(flag), { cwd, detached: true, stdio: "ignore" });
       child.unref();
       child.on("error", () => resolve());
       // Give the emulator up to 2.5s to create a window.
@@ -328,13 +352,17 @@ async function openLinuxTerminal(cwd, branch) {
       if (afterWindows !== beforeWindows) {
         return { ok: true };
       }
-      // No new window: gnome-terminal may have silently failed. Try next.
+      // No new window: this emulator may have silently failed. Try next.
       continue;
     }
     // Cannot verify — assume the first available worked.
     return { ok: true };
   }
-  return { ok: false, error: "Terminal launched but no window appeared (known issue with gnome-terminal on some Wayland GNOME setups). Try installing xterm or setting the TERMINAL env var." };
+  const isWayland = /wayland/i.test(process.env.XDG_SESSION_TYPE || "") || !!process.env.WAYLAND_DISPLAY;
+  const hint = isWayland
+    ? "gnome-terminal is known to silently fail on some Wayland GNOME setups. Install a standalone emulator (apt install xterm, or kitty/alacritty/wezterm) and/or set TERMINAL=xterm before launching pi-web."
+    : "Set the TERMINAL env var to your preferred emulator (e.g. TERMINAL=xterm).";
+  return { ok: false, error: `Terminal launched but no window appeared (tried: ${attempted.join(", ")}). ${hint}` };
 }
 
 function setupIpcHandlers() {

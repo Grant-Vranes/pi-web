@@ -122,26 +122,56 @@ function openTerminal(cwd: string, branch: string | null): Promise<SpawnResult> 
   });
 }
 
-/** All available terminal emulators on PATH, honoring $TERMINAL first. */
+/** All available terminal launchers/emulators on PATH, honoring $TERMINAL first.
+ *
+ *  Returns a list of [launcher, argStyle] pairs where argStyle is one of:
+ *  - "xdg"    : xdg-terminal-exec style — pass the command and args directly
+ *               (it figures out the emulator itself; freedesktop standard).
+ *  - "--"     : emulator uses `--` to separate its options from the command
+ *               (gnome-terminal, xfce4-terminal).
+ *  - "-e"     : emulator uses `-e` to run a command (xterm, konsole, kitty…).
+ *  - "-e sh"  : emulator's `-e` only takes a single token, so we wrap with
+ *               `sh -c` (some quirky emulators).
+ *
+ *  On Wayland GNOME, gnome-terminal's D-Bus factory can silently exit 0
+ *  without opening a window when launched from a non-interactive/background
+ *  process context. xdg-terminal-exec and standalone emulators (xterm,
+ *  kitty, alacritty, foot, wezterm) are not affected, so we prefer them.
+ */
 function listLinuxTerminals(): Array<[string, string]> {
   const preferred = process.env.TERMINAL;
   const order: Array<[string, string]> = [];
   if (preferred) {
-    order.push([preferred.split(/\s+/)[0], "-e"]);
+    // $TERMINAL may be a bare emulator name; treat it as `-e` style by
+    // default (most emulators accept -e). gnome-terminal/xfce4-terminal
+    // users should set TERMINAL explicitly if they want `--` semantics —
+    // but we also auto-detect those two names below.
+    const prefName = preferred.split(/\s+/)[0];
+    order.push([prefName, prefName === "gnome-terminal" || prefName === "xfce4-terminal" ? "--" : "-e"]);
   }
-  // gnome-terminal/xfce4-terminal use `--`; the rest use `-e`.
+  // xdg-terminal-exec first (freedesktop standard, respects mimeapps list
+  // and works around gnome-terminal's factory issues on some setups), then
+  // standalone emulators that are immune to the D-Bus factory problem, then
+  // the D-Bus-based ones as a last resort.
   const known: Array<[string, string]> = [
+    ["xdg-terminal-exec", "xdg"],
     ["xterm", "-e"],
-    ["gnome-terminal", "--"],
+    ["kitty", "-e"],
+    ["alacritty", "-e"],
+    ["wezterm", "-e"],
+    ["foot", "-e"],
     ["konsole", "-e"],
     ["xfce4-terminal", "-e"],
-    ["alacritty", "-e"],
-    ["kitty", "-e"],
     ["lxterminal", "-e"],
     ["mate-terminal", "-e"],
     ["tilix", "-e"],
     ["qterminal", "-e"],
     ["terminology", "-e"],
+    ["ptyxis", "-e"],
+    ["kgx", "-e"],
+    // gnome-terminal last: on Wayland GNOME it may silently fail to open a
+    // window when spawned from a background process (D-Bus factory mismatch).
+    ["gnome-terminal", "--"],
   ];
   for (const [name, flag] of known) {
     if (!order.some(([n]) => n === name)) order.push([name, flag]);
@@ -158,6 +188,22 @@ function listLinuxTerminals(): Array<[string, string]> {
   return available;
 }
 
+/** Build the argv (excluding the leading command) for a given launcher style. */
+function buildLauncherArgs(flag: string, shCmd: string): string[] {
+  switch (flag) {
+    case "xdg":
+      // xdg-terminal-exec takes the command and args directly; pass sh -c.
+      return ["sh", "-c", shCmd];
+    case "--":
+      // gnome-terminal / xfce4-terminal: `--` separates options from command.
+      return ["--", "sh", "-c", shCmd];
+    case "-e":
+    default:
+      // xterm / konsole / kitty / alacritty / foot / wezterm …: `-e cmd args…`.
+      return ["-e", "sh", "-c", shCmd];
+  }
+}
+
 /** Try each terminal emulator, verifying via wmctrl that a window appeared. */
 async function openLinuxTerminalWithVerification(cwd: string, branch: string | null): Promise<SpawnResult> {
   const shCmd = buildShellCommand(cwd, branch);
@@ -165,22 +211,27 @@ async function openLinuxTerminalWithVerification(cwd: string, branch: string | n
   if (available.length === 0) {
     return {
       ok: false,
-      error: "No supported terminal emulator found. Set the TERMINAL env var (e.g. TERMINAL=xterm).",
+      error: "No supported terminal emulator found. Set the TERMINAL env var (e.g. TERMINAL=xterm) or install xterm (apt install xterm / dnf install xterm).",
     };
   }
   const wmctrlProbe = spawnSync("sh", ["-c", "command -v wmctrl >/dev/null 2>&1 && echo ok"], { timeout: 2000 });
   const canVerify = /ok/.test(wmctrlProbe.stdout.toString());
   const before = canVerify ? spawnSync("wmctrl", ["-l"], { timeout: 2000 }).stdout.toString() : "";
+  const attempted: string[] = [];
   for (const [name, flag] of available) {
+    attempted.push(name);
+    const args = buildLauncherArgs(flag, shCmd);
     await new Promise<void>((resolve) => {
-      const child = spawn(name, [flag, "sh", "-c", shCmd], {
+      const child = spawn(name, args, {
         cwd,
         detached: true,
         stdio: "ignore",
       });
       child.unref();
       child.on("error", () => resolve());
-      // Give the emulator up to 2.5s to create its window.
+      // Give the emulator up to 2.5s to create its window. xdg-terminal-exec
+      // and some D-Bus-based emulators fork-and-exit immediately, so the
+      // window may appear slightly after spawn returns.
       setTimeout(resolve, 2500);
     });
     if (canVerify) {
@@ -188,15 +239,27 @@ async function openLinuxTerminalWithVerification(cwd: string, branch: string | n
       if (after !== before) {
         return { ok: true };
       }
-      // No new window — gnome-terminal may have silently failed. Try next.
+      // No new window — this emulator silently failed (common with
+      // gnome-terminal on Wayland GNOME). Try the next candidate.
       continue;
     }
-    // Cannot verify — assume the first available worked.
+    // Cannot verify (no wmctrl) — assume the first available worked. This
+    // matches the historical behavior and avoids false negatives on minimal
+    // window managers where wmctrl can't enumerate windows.
     return { ok: true };
   }
+  // All candidates failed to open a window. Give the user an actionable
+  // message: which emulators we tried, how to install a reliable one, and
+  // how to force a specific one via $TERMINAL.
+  const isWayland = /wayland/i.test(process.env.XDG_SESSION_TYPE || "") || !!process.env.WAYLAND_DISPLAY;
+  const hint = isWayland
+    ? "gnome-terminal is known to silently fail on some Wayland GNOME setups. " +
+      "Install a standalone emulator (apt install xterm, or kitty/alacritty/wezterm) " +
+      "and/or set TERMINAL=xterm before launching pi-web."
+    : "Set the TERMINAL env var to your preferred emulator (e.g. TERMINAL=xterm).";
   return {
     ok: false,
-    error: "Terminal launched but no window appeared (known issue with gnome-terminal on some Wayland GNOME setups). Install xterm or set the TERMINAL env var.",
+    error: `Terminal launched but no window appeared (tried: ${attempted.join(", ")}). ${hint}`,
   };
 }
 

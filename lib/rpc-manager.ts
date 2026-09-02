@@ -1822,12 +1822,46 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   return sessions.length;
 }
 
+export interface RunningRpcSessionDetail {
+  id: string;
+  /** Current in-memory model for the running session, if any. */
+  model?: { id: string; provider: string } | null;
+  /** Cwd the wrapper was started with (header cwd once persisted). */
+  cwd?: string;
+  /** True while the runtime session is streaming / executing a prompt. */
+  streaming?: boolean;
+  /** True while a bash tool call is in progress. */
+  bashRunning?: boolean;
+  /** True while auto/manual compaction is running. */
+  compacting?: boolean;
+}
+
 export function getRunningRpcSessionIds(): string[] {
   const ids = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {
     if (session.isRunning()) ids.add(session.sessionId || sessionId);
   }
   return [...ids];
+}
+
+/** Lightweight per-session snapshot for running sessions. Reads model/cwd
+ *  straight from the in-memory wrapper so callers (project indicator
+ *  tooltips) don't need a per-session get_state round trip. */
+export function getRunningRpcSessionDetails(): RunningRpcSessionDetail[] {
+  const details: RunningRpcSessionDetail[] = [];
+  for (const session of getRegistry().values()) {
+    if (!session.isRunning()) continue;
+    const model = session.inner.model;
+    details.push({
+      id: session.sessionId,
+      model: model ? { id: model.id, provider: model.provider } : null,
+      cwd: session.cwd,
+      streaming: session.inner.isStreaming,
+      bashRunning: session.inner.isBashRunning,
+      compacting: session.inner.isCompacting,
+    });
+  }
+  return details;
 }
 
 export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {

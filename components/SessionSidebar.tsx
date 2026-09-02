@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { type SessionTreeNode } from "@/lib/session-tree";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, groupFamiliesByDay, type SessionDayGroup } from "@/lib/session-family";
@@ -13,6 +14,7 @@ import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { displayCwd } from "@/lib/cwd-display";
 import { getFileName } from "@/lib/file-paths";
 import type { WorktreeEntry, WorktreeState } from "@/lib/worktree-types";
+import type { RunningRpcSessionDetail } from "@/lib/rpc-manager";
 import { calendarDaysAgo, formatSessionTimestamp, formatDayLabel } from "@/lib/i18n/format";
 import type { Locale } from "@/lib/i18n/types";
 import { useI18n } from "@/hooks/useI18n";
@@ -260,6 +262,117 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
   );
 }
 
+/**
+ * Hover tooltip for a session row that shows the full (untruncated) title.
+ * Unlike the native `title` attribute, this supports wrapping and a vertical
+ * scrollbar when the title is very long, so the user can read the whole
+ * thing. Anchored above the row (or below if there isn't room), clamped to
+ * the viewport, and shown after a short hover delay so quick mouse passes
+ * don't flicker it on.
+ */
+const SESSION_TITLE_TOOLTIP_DELAY_MS = 450;
+const SESSION_TITLE_TOOLTIP_MAX_WIDTH = 360;
+const SESSION_TITLE_TOOLTIP_MAX_HEIGHT = 220;
+
+function SessionTitleTooltip({
+  anchorEl,
+  open,
+  title,
+  messageCount,
+  timestamp,
+  t,
+}: {
+  anchorEl: HTMLElement | null;
+  open: boolean;
+  title: string;
+  messageCount: number;
+  timestamp: string;
+  t: (key: string, params?: Record<string, unknown>) => string;
+}) {
+  // `open` is true while the row is hovered; we add a short delay before the
+  // card actually appears so a quick mouse pass doesn't flicker it on, and
+  // hide immediately on leave.
+  const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setVisible(false);
+      return;
+    }
+    let showTimer: ReturnType<typeof setTimeout> | undefined;
+    showTimer = setTimeout(() => setVisible(true), SESSION_TITLE_TOOLTIP_DELAY_MS);
+    return () => { if (showTimer) clearTimeout(showTimer); };
+  }, [open]);
+
+  // Measure + position the card. Runs whenever it becomes visible, when the
+  // anchor changes, when the title changes (height can change), and on scroll/
+  // resize so the card stays pinned to the row while the user reads it.
+  const measure = useCallback(() => {
+    if (!anchorEl) return;
+    const rect = anchorEl.getBoundingClientRect();
+    const card = cardRef.current;
+    const cardW = card?.offsetWidth ?? SESSION_TITLE_TOOLTIP_MAX_WIDTH;
+    const cardH = card?.offsetHeight ?? 0;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Center horizontally on the row, clamped to the viewport.
+    let left = rect.left + rect.width / 2 - cardW / 2;
+    left = Math.max(8, Math.min(left, vw - cardW - 8));
+    // Prefer above the row; fall back to below when there isn't room.
+    const gap = 8;
+    let top: number;
+    if (rect.top - gap - cardH >= 8) {
+      top = rect.top - gap - cardH;
+    } else {
+      top = rect.bottom + gap;
+      if (top + cardH > vh - 8) top = Math.max(8, vh - cardH - 8);
+    }
+    setPos({ left, top });
+  }, [anchorEl]);
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+    measure();
+  }, [visible, measure, title]);
+
+  useEffect(() => {
+    if (!visible) return;
+    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("scroll", measure, true);
+      window.removeEventListener("resize", measure);
+    };
+  }, [visible, measure]);
+
+  if (!visible) return null;
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      role="tooltip"
+      className="session-title-tooltip"
+      style={{
+        position: "fixed",
+        left: pos.left,
+        top: pos.top,
+        zIndex: 9999,
+        maxWidth: SESSION_TITLE_TOOLTIP_MAX_WIDTH,
+        maxHeight: SESSION_TITLE_TOOLTIP_MAX_HEIGHT,
+      }}
+    >
+      <div className="session-title-tooltip-body">{title}</div>
+      <div className="session-title-tooltip-meta">
+        <span>{timestamp}</span>
+        <span aria-hidden="true">·</span>
+        <span>{t("sidebar.messagesCount", { count: messageCount })}</span>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
@@ -384,6 +497,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  // Per-running-session model/cwd/state snapshot, refreshed by the running
+  // poller. Feeds the project-rail indicator tooltip without per-session
+  // get_state round trips.
+  const [runningSessionDetails, setRunningSessionDetails] = useState<RunningRpcSessionDetail[]>([]);
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const [projectRailHistory, setProjectRailHistory] = useState<ProjectSelection[]>(() => loadProjectRailHistory());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
@@ -503,6 +620,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         if (!res.ok) return;
         const data = await res.json() as {
           runningSessionIds?: string[];
+          runningSessionDetails?: RunningRpcSessionDetail[];
           completionNotificationSuppressedSessionIds?: string[];
         };
         if (stopped || controller !== current) return;
@@ -511,6 +629,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setRunningSessionDetails(data.runningSessionDetails ?? []);
       } catch {
         // Keep the last known state; the next visible-tab poll retries.
       } finally {
@@ -981,6 +1100,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         projects={railProjects}
         selectedProjectKey={selectedProject?.key ?? null}
         activity={projectActivity}
+        allSessions={allSessions}
+        runningSessionIds={runningSessionIds}
+        runningSessionDetails={runningSessionDetails}
+        unreadSessionIds={unreadSessionIds}
         onSelect={(project) => {
           setSelectedCwd(project.root);
           setProjectFilter("");
@@ -1596,11 +1719,17 @@ function ConversationsTabs({
 }
 
 /** A persistent, compact workspace rail. It mirrors the dropdown's project
- * selection state while making cross-project activity visible at a glance. */
+ * selection state while making cross-project activity visible at a glance.
+ * Hovering a project tile surfaces a right-side floating card with the
+ * project's running sessions, their git branch, and current model. */
 function ProjectRail({
   projects,
   selectedProjectKey,
   activity,
+  allSessions,
+  runningSessionIds,
+  runningSessionDetails,
+  unreadSessionIds,
   onSelect,
   onAddProject,
   onReorder,
@@ -1608,6 +1737,10 @@ function ProjectRail({
   projects: readonly ProjectSelection[];
   selectedProjectKey: string | null;
   activity: ReadonlyMap<string, { running: number; unread: number }>;
+  allSessions: readonly SessionInfo[];
+  runningSessionIds: ReadonlySet<string>;
+  runningSessionDetails: readonly RunningRpcSessionDetail[];
+  unreadSessionIds: ReadonlySet<string>;
   onSelect: (project: ProjectSelection) => void;
   onAddProject: () => void;
   onReorder: (keys: string[]) => void;
@@ -1615,6 +1748,18 @@ function ProjectRail({
   const { t } = useI18n();
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ key: string; after: boolean } | null>(null);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  // The hovered tile element, captured in onMouseEnter so the tooltip has a
+  // stable anchor regardless of ref-callback timing.
+  const [hoveredEl, setHoveredEl] = useState<HTMLElement | null>(null);
+
+  // Index running-session model/state snapshots by id for O(1) lookup.
+  const detailById = useMemo(() => {
+    const map = new Map<string, RunningRpcSessionDetail>();
+    for (const detail of runningSessionDetails) map.set(detail.id, detail);
+    return map;
+  }, [runningSessionDetails]);
+
   return (
     <nav className="project-rail" aria-label={t("sidebar.selectProject")}>
       <div className="project-rail-mark" aria-hidden="true">
@@ -1627,53 +1772,77 @@ function ProjectRail({
           const active = project.key === selectedProjectKey;
           const state = activity.get(project.key);
           const name = project.root.split(/[\\/]/).filter(Boolean).pop() || project.root;
+          const isDragging = draggingKey === project.key;
+          const showTooltip = hoveredKey === project.key && !isDragging && !dropTarget;
           return (
-            <button
+            <div
               key={project.key}
-              type="button"
-              className={`project-rail-item${active ? " is-active" : ""}${draggingKey === project.key ? " is-dragging" : ""}${dropTarget?.key === project.key ? (dropTarget.after ? " is-drop-after" : " is-drop-before") : ""}`}
-              draggable
-              onDragStart={(event) => {
-                setDraggingKey(project.key);
-                setDropTarget(null);
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", project.key);
+              className="project-rail-tile"
+              onMouseEnter={(event) => {
+                setHoveredKey(project.key);
+                setHoveredEl(event.currentTarget as HTMLElement);
               }}
-              onDragEnd={() => {
-                setDraggingKey(null);
-                setDropTarget(null);
+              onMouseLeave={() => {
+                setHoveredKey((current) => (current === project.key ? null : current));
+                setHoveredEl((current) => (current ? null : current));
               }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                const rect = event.currentTarget.getBoundingClientRect();
-                setDropTarget({ key: project.key, after: event.clientY > rect.top + rect.height / 2 });
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const sourceKey = event.dataTransfer.getData("text/plain") || draggingKey;
-                const after = dropTarget?.key === project.key ? dropTarget.after : false;
-                setDraggingKey(null);
-                setDropTarget(null);
-                if (!sourceKey || sourceKey === project.key) return;
-                const keys = projects.map((item) => item.key);
-                const sourceIndex = keys.indexOf(sourceKey);
-                const targetIndex = keys.indexOf(project.key);
-                if (sourceIndex < 0 || targetIndex < 0) return;
-                keys.splice(sourceIndex, 1);
-                const insertionIndex = (sourceIndex < targetIndex ? targetIndex - 1 : targetIndex) + (after ? 1 : 0);
-                keys.splice(insertionIndex, 0, sourceKey);
-                onReorder(keys);
-              }}
-              onClick={() => onSelect(project)}
-              title={project.root}
-              aria-label={project.root}
-              aria-current={active ? "page" : undefined}
             >
-              <span className="project-rail-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
-              {state?.running ? <span className="project-rail-running" title={t("sidebar.agentRunning")} /> : null}
-              {!state?.running && state?.unread ? <span className="project-rail-unread" title={t("sidebar.newSessionActivity")} /> : null}
-            </button>
+              <button
+                type="button"
+                className={`project-rail-item${active ? " is-active" : ""}${isDragging ? " is-dragging" : ""}${dropTarget?.key === project.key ? (dropTarget.after ? " is-drop-after" : " is-drop-before") : ""}`}
+                draggable
+                onDragStart={(event) => {
+                  setDraggingKey(project.key);
+                  setDropTarget(null);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", project.key);
+                }}
+                onDragEnd={() => {
+                  setDraggingKey(null);
+                  setDropTarget(null);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setDropTarget({ key: project.key, after: event.clientY > rect.top + rect.height / 2 });
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceKey = event.dataTransfer.getData("text/plain") || draggingKey;
+                  const after = dropTarget?.key === project.key ? dropTarget.after : false;
+                  setDraggingKey(null);
+                  setDropTarget(null);
+                  if (!sourceKey || sourceKey === project.key) return;
+                  const keys = projects.map((item) => item.key);
+                  const sourceIndex = keys.indexOf(sourceKey);
+                  const targetIndex = keys.indexOf(project.key);
+                  if (sourceIndex < 0 || targetIndex < 0) return;
+                  keys.splice(sourceIndex, 1);
+                  const insertionIndex = (sourceIndex < targetIndex ? targetIndex - 1 : targetIndex) + (after ? 1 : 0);
+                  keys.splice(insertionIndex, 0, sourceKey);
+                  onReorder(keys);
+                }}
+                onClick={() => onSelect(project)}
+                title={project.root}
+                aria-label={project.root}
+                aria-current={active ? "page" : undefined}
+              >
+                <span className="project-rail-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
+                {state?.running ? <span className="project-rail-running" /> : null}
+                {!state?.running && state?.unread ? <span className="project-rail-unread" /> : null}
+              </button>
+              {showTooltip ? (
+                <ProjectRailTooltip
+                  project={project}
+                  allSessions={allSessions}
+                  runningSessionIds={runningSessionIds}
+                  detailById={detailById}
+                  unreadSessionIds={unreadSessionIds}
+                  anchorEl={hoveredEl}
+                />
+              ) : null}
+            </div>
           );
         })}
       </div>
@@ -1683,6 +1852,169 @@ function ProjectRail({
     </nav>
   );
 }
+
+/** Right-side floating card for a project tile. Lists the project's running
+ *  sessions (branch + model) and any sessions that finished in the
+ *  background and are waiting for the user to check them (unread). Rendered
+ *  through a portal at the document root with position:fixed so it escapes
+ *  the rail's overflow:hidden ancestors and always stacks on top. `anchorEl`
+ *  is the hovered tile element; the card measures it via useLayoutEffect and
+ *  tracks it on scroll/resize. */
+function ProjectRailTooltip({
+  project,
+  allSessions,
+  runningSessionIds,
+  detailById,
+  unreadSessionIds,
+  anchorEl,
+}: {
+  project: ProjectSelection;
+  allSessions: readonly SessionInfo[];
+  runningSessionIds: ReadonlySet<string>;
+  detailById: Map<string, RunningRpcSessionDetail>;
+  unreadSessionIds: ReadonlySet<string>;
+  anchorEl: HTMLElement | null | undefined;
+}) {
+  const { t } = useI18n();
+  const name = project.root.split(/[\\/]/).filter(Boolean).pop() || project.root;
+
+  // Sessions that belong to this project (by stable workspace key) and are
+  // currently running. allSessions already carries branch + cwd from the
+  // server; detailById supplies the live in-memory model.
+  const running = useMemo(() => {
+    const list: Array<{ session: SessionInfo; detail: RunningRpcSessionDetail | undefined }> = [];
+    for (const session of allSessions) {
+      if (workspaceKeyOf(session) !== project.key) continue;
+      if (!runningSessionIds.has(session.id)) continue;
+      list.push({ session, detail: detailById.get(session.id) });
+    }
+    // Most recently active first.
+    list.sort((a, b) => b.session.modified.localeCompare(a.session.modified));
+    return list;
+  }, [allSessions, project.key, runningSessionIds, detailById]);
+
+  // Sessions that finished in the background and haven't been viewed yet
+  // ("waiting for check"). allSessions carries branch + cwd; the model is no
+  // longer in memory once idle, so we show a completed badge instead.
+  const unread = useMemo(() => {
+    const list: SessionInfo[] = [];
+    for (const session of allSessions) {
+      if (workspaceKeyOf(session) !== project.key) continue;
+      if (!unreadSessionIds.has(session.id)) continue;
+      list.push(session);
+    }
+    list.sort((a, b) => b.modified.localeCompare(a.modified));
+    return list;
+  }, [allSessions, project.key, unreadSessionIds]);
+
+  // Measure the anchor tile and keep the fixed card aligned on scroll/resize.
+  // useLayoutEffect so the rect is current before paint (no flicker).
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [cardSize, setCardSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    if (!anchorEl) return;
+    const measure = () => {
+      setAnchorRect(anchorEl.getBoundingClientRect());
+      const el = cardRef.current;
+      if (el) setCardSize({ w: el.offsetWidth, h: el.offsetHeight });
+    };
+    measure();
+    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("scroll", measure, true);
+      window.removeEventListener("resize", measure);
+    };
+  }, [anchorEl]);
+
+  // Position the fixed card to the right of the tile, vertically centered,
+  // clamped on all four sides so it never overflows the viewport.
+  const style: CSSProperties = useMemo(() => {
+    if (!anchorRect) return { visibility: "hidden" as const };
+    const gap = 10;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const cardW = cardSize.w || 300;
+    const cardH = cardSize.h || 0;
+    // Horizontal: prefer to the right of the tile; if it would overflow the
+    // right edge, fall back to the left of the tile; clamp the fallback too.
+    let left = anchorRect.right + gap;
+    if (left + cardW > vw - 8) {
+      const leftSide = anchorRect.left - gap - cardW;
+      left = leftSide >= 8 ? leftSide : Math.max(8, Math.min(left, vw - cardW - 8));
+    }
+    // Vertical: center on the tile, then clamp within the viewport.
+    let top = anchorRect.top + anchorRect.height / 2 - cardH / 2;
+    top = Math.max(8, Math.min(top, vh - cardH - 8));
+    return { left, top };
+  }, [anchorRect, cardSize]);
+
+  return createPortal(
+    <div className="project-rail-tooltip" role="tooltip" style={style} ref={cardRef}>
+      <div className="project-rail-tooltip-head">
+        <span className="project-rail-tooltip-name">{name}</span>
+        <span className="project-rail-tooltip-path">{displayCwd(project.root)}</span>
+      </div>
+      {running.length > 0 ? (
+        <div className="project-rail-tooltip-section">
+          <div className="project-rail-tooltip-label">
+            {t("sidebar.projectRunningCount", { count: running.length })}
+          </div>
+          <ul className="project-rail-tooltip-list">
+            {running.map(({ session, detail }) => {
+              const modelText = detail?.model ? `${detail.model.provider}/${detail.model.id}` : t("sidebar.modelUnknown");
+              return (
+              <li key={session.id} className="project-rail-tooltip-card">
+                <span className={`project-rail-tooltip-dot${detail?.streaming ? " is-streaming" : detail?.compacting ? " is-compacting" : detail?.bashRunning ? " is-bash" : ""}`} aria-hidden="true" />
+                <span className="project-rail-tooltip-card-body">
+                  <span className="project-rail-tooltip-card-row">
+                    <svg className="project-rail-tooltip-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    <span className="project-rail-tooltip-branch-text" title={session.branch ?? ""}>{session.branch ?? t("sidebar.noBranch")}</span>
+                  </span>
+                  <span className="project-rail-tooltip-card-row project-rail-tooltip-card-meta">
+                    {detail?.model ? modelText : <span className="project-rail-tooltip-muted">{modelText}</span>}
+                  </span>
+                </span>
+              </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+      {unread.length > 0 ? (
+        <div className="project-rail-tooltip-section">
+          <div className="project-rail-tooltip-label">
+            {t("sidebar.projectUnreadCount", { count: unread.length })}
+          </div>
+          <ul className="project-rail-tooltip-list">
+            {unread.map((session) => (
+              <li key={session.id} className="project-rail-tooltip-card">
+                <span className="project-rail-tooltip-dot is-done" aria-hidden="true" />
+                <span className="project-rail-tooltip-card-body">
+                  <span className="project-rail-tooltip-card-row">
+                    <svg className="project-rail-tooltip-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    <span className="project-rail-tooltip-branch-text" title={session.branch ?? ""}>{session.branch ?? t("sidebar.noBranch")}</span>
+                  </span>
+                  <span className="project-rail-tooltip-card-row project-rail-tooltip-card-meta">
+                    <span className="project-rail-tooltip-done">{t("sidebar.sessionCompleted")}</span>
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {running.length === 0 && unread.length === 0 ? (
+        <div className="project-rail-tooltip-section">
+          <div className="project-rail-tooltip-empty">{t("sidebar.projectNotRunning")}</div>
+        </div>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
 
 function SessionDayGroupSection({
   group,
@@ -2041,6 +2373,7 @@ function SessionItem({
 }) {
   const { locale, t } = useI18n();
   const [hovered, setHovered] = useState(false);
+  const [hoveredEl, setHoveredEl] = useState<HTMLElement | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2162,8 +2495,8 @@ function SessionItem({
       className="sidebar-session-record"
       onClick={confirmDelete || renaming ? undefined : onClick}
       onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); }}
+      onMouseEnter={(e) => { setHovered(true); setHoveredEl(e.currentTarget); }}
+      onMouseLeave={() => { setHovered(false); setHoveredEl(null); }}
       style={{
         height: ITEM_HEIGHT,
         display: "flex",
@@ -2270,7 +2603,6 @@ function SessionItem({
                 color: isSelected ? "var(--text)" : isUnread ? "var(--text)" : "var(--text-muted)",
                 transition: "color 0.1s",
               }}
-              title={title}
             >
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {title}
@@ -2422,6 +2754,16 @@ function SessionItem({
             </div>
           )}
         </>
+      )}
+      {!confirmDelete && !renaming && (
+        <SessionTitleTooltip
+          anchorEl={hoveredEl}
+          open={hovered}
+          title={title}
+          messageCount={session.messageCount}
+          timestamp={formatSessionTimestamp(session.modified, locale)}
+          t={t}
+        />
       )}
     </div>
   );
