@@ -1728,26 +1728,14 @@ span.token.table {
   line-height: 1.45;
   pointer-events: none;
   user-select: none;
-  /* left/top/transform come from inline style (viewport-space coords). */
+  /* left/top come from inline style (viewport-space coords); no transform
+     in the resting state, so entry keyframes must not leave one behind. */
   /* Fade in quickly; the card only exists while hovering. */
   animation: project-rail-tooltip-in 110ms ease-out;
 }
-/* Anchor nub on the tooltip's left edge, pointing at the tile. */
-.project-rail-tooltip::before {
-  position: absolute;
-  left: -5px;
-  top: 50%;
-  width: 9px;
-  height: 9px;
-  border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
-  transform: translateY(-50%) rotate(45deg);
-  content: "";
-}
 @keyframes project-rail-tooltip-in {
-  from { opacity: 0; transform: translateY(-50%) translateX(-4px); }
-  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 .project-rail-tooltip-head {
   display: flex;
