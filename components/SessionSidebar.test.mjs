@@ -100,3 +100,25 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+test("offers a bulk expand/collapse toggle for the current tab's day groups", () => {
+  // Smart toggle: "expand all" while any group is collapsed, "collapse all"
+  // once everything is expanded. The decision and the icon must agree.
+  assert.match(
+    source,
+    /const anyDayGroupCollapsed = sessionDayGroups\.some\(\(group\) => collapsedDayGroups\.has\(group\.dateKey\)\)/,
+  );
+  assert.match(
+    source,
+    /title=\{t\(anyDayGroupCollapsed \? "sidebar\.expandAllGroups" : "sidebar\.collapseAllGroups"\)\}/,
+  );
+  assert.match(source, /disabled=\{sessionDayGroups\.length === 0\}/);
+  assert.match(source, /onClick=\{toggleAllDayGroups\}/);
+});
+
+test("bulk day-group toggle only rewrites the current tab's group keys", () => {
+  assert.match(
+    source,
+    /for \(const group of sessionDayGroups\) \{\s*if \(anyDayGroupCollapsed\) next\.delete\(group\.dateKey\);\s*else next\.add\(group\.dateKey\);\s*\}/,
+  );
+});

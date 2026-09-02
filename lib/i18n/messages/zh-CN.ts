@@ -254,6 +254,8 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.daysAgo": "{count}天前",
     "sidebar.expandGroup": "展开分组",
     "sidebar.collapseGroup": "折叠分组",
+    "sidebar.expandAllGroups": "展开全部分组",
+    "sidebar.collapseAllGroups": "折叠全部分组",
     "sidebar.messagesCount": "{count} 条消息",
     "sidebar.worktreePath": "Worktree：{path}",
     "sidebar.removeWorktreeTitle": "移除 worktree checkout {path}；保留分支",

@@ -2,8 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { type SessionTreeNode } from "@/lib/session-tree";
-import type { SessionInfo } from "@/lib/types";
+import { type SessionInfo } from "@/lib/types";
 import { listSessionFamilies, groupFamiliesByDay, type SessionDayGroup } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { loadCollapsedDayGroups, saveCollapsedDayGroups, hasCollapseBeenSeeded, markCollapseSeeded } from "@/lib/session-day-collapse";
@@ -16,7 +15,6 @@ import { getFileName } from "@/lib/file-paths";
 import type { WorktreeEntry, WorktreeState } from "@/lib/worktree-types";
 import type { RunningRpcSessionDetail } from "@/lib/rpc-manager";
 import { calendarDaysAgo, formatSessionTimestamp, formatDayLabel } from "@/lib/i18n/format";
-import type { Locale } from "@/lib/i18n/types";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -287,7 +285,7 @@ function SessionTitleTooltip({
   title: string;
   messageCount: number;
   timestamp: string;
-  t: (key: string, params?: Record<string, unknown>) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }) {
   // `open` is true while the row is hovered; we add a short delay before the
   // card actually appears so a quick mouse pass doesn't flicker it on, and
@@ -301,8 +299,7 @@ function SessionTitleTooltip({
       setVisible(false);
       return;
     }
-    let showTimer: ReturnType<typeof setTimeout> | undefined;
-    showTimer = setTimeout(() => setVisible(true), SESSION_TITLE_TOOLTIP_DELAY_MS);
+    const showTimer = setTimeout(() => setVisible(true), SESSION_TITLE_TOOLTIP_DELAY_MS);
     return () => { if (showTimer) clearTimeout(showTimer); };
   }, [open]);
 
@@ -1058,6 +1055,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [sessionFamilies],
   );
 
+  // Bulk expand/collapse for every day group of the current tab. Mirrors the
+  // per-group toggle: while any group is collapsed the button offers
+  // "expand all"; once everything is expanded it offers "collapse all".
+  const anyDayGroupCollapsed = sessionDayGroups.some((group) => collapsedDayGroups.has(group.dateKey));
+  const toggleAllDayGroups = useCallback(() => {
+    setCollapsedDayGroups((prev) => {
+      const next = new Set(prev);
+      for (const group of sessionDayGroups) {
+        if (anyDayGroupCollapsed) next.delete(group.dateKey);
+        else next.add(group.dateKey);
+      }
+      return next;
+    });
+  }, [sessionDayGroups, anyDayGroupCollapsed]);
+
   // 首次使用（或清空存储后）默认折叠除“今天”以外的所有分组；
   // 一旦应用过一次就标记为已初始化，后续以用户显式选择为准，避免重新加载时覆盖。
   const seededRef = useRef(false);
@@ -1415,6 +1427,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.new")}
           </button>
           <ToolbarIconButton
+            onClick={toggleAllDayGroups}
+            disabled={sessionDayGroups.length === 0}
+            color="var(--text-dim)"
+            title={t(anyDayGroupCollapsed ? "sidebar.expandAllGroups" : "sidebar.collapseAllGroups")}
+          >
+            {anyDayGroupCollapsed ? (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5" /><path d="m7 13 5 5 5-5" /></svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m17 11-5-5-5 5" /><path d="m17 18-5-5-5 5" /></svg>
+            )}
+          </ToolbarIconButton>
+          <ToolbarIconButton
             onClick={() => loadSessions(false, true)}
             title={t("sidebar.refresh")}
             skipHover={sessionRefreshDone}
@@ -1457,7 +1481,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               selectedSessionId={selectedSessionId}
               runningSessionIds={runningSessionIds}
               unreadSessionIds={unreadSessionIds}
-              locale={locale}
               archivedView={conversationsTab === "archived"}
               onSelectSession={handleSelectSessionFromList}
               onRenamed={loadSessions}
@@ -2023,7 +2046,6 @@ function SessionDayGroupSection({
   selectedSessionId,
   runningSessionIds,
   unreadSessionIds,
-  locale,
   archivedView,
   onSelectSession,
   onRenamed,
@@ -2038,7 +2060,6 @@ function SessionDayGroupSection({
   selectedSessionId: string | null;
   runningSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
-  locale: Locale;
   archivedView: boolean;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
@@ -2160,77 +2181,6 @@ function SessionDayGroupSection({
           />
         );
       })}
-    </div>
-  );
-}
-
-function SessionTreeItem({
-  node,
-  selectedSessionId,
-  runningSessionIds,
-  unreadSessionIds,
-  onSelectSession,
-  onRenamed,
-  onSessionDeleted,
-  depth,
-}: {
-  node: SessionTreeNode;
-  selectedSessionId: string | null;
-  runningSessionIds: Set<string>;
-  unreadSessionIds: Set<string>;
-  onSelectSession: (s: SessionInfo) => void;
-  onRenamed?: () => void;
-  onSessionDeleted?: (id: string) => void;
-  depth: number;
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  const hasChildren = node.children.length > 0;
-
-  return (
-    <div>
-      <div style={{ position: "relative" }}>
-        {/* Indent line for child sessions */}
-        {depth > 0 && (
-          <div style={{
-            position: "absolute",
-            left: depth * 12 + 6,
-            top: 0, bottom: 0,
-            width: 1,
-            background: "var(--border)",
-            pointerEvents: "none",
-          }} />
-        )}
-        <SessionItem
-          session={node.session}
-          isSelected={node.session.id === selectedSessionId}
-          isRunning={runningSessionIds.has(node.session.id)}
-          isUnread={unreadSessionIds.has(node.session.id)}
-          onClick={() => onSelectSession(node.session)}
-          onRenamed={onRenamed}
-          onDeleted={(id) => onSessionDeleted?.(id)}
-          depth={depth}
-          hasChildren={hasChildren}
-          collapsed={collapsed}
-          onToggleCollapse={() => setCollapsed((v) => !v)}
-        />
-      </div>
-      {hasChildren && !collapsed && (
-        <div>
-          {node.children.map((child) => (
-            <SessionTreeItem
-              key={child.session.id}
-              node={child}
-              selectedSessionId={selectedSessionId}
-              runningSessionIds={runningSessionIds}
-              unreadSessionIds={unreadSessionIds}
-              onSelectSession={onSelectSession}
-              onRenamed={onRenamed}
-              onSessionDeleted={onSessionDeleted}
-              depth={depth + 1}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -254,6 +254,8 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.daysAgo": "{count}天前",
     "sidebar.expandGroup": "展開分組",
     "sidebar.collapseGroup": "摺疊分組",
+    "sidebar.expandAllGroups": "展開全部分組",
+    "sidebar.collapseAllGroups": "摺疊全部分組",
     "sidebar.messagesCount": "{count} 則訊息",
     "sidebar.worktreePath": "Worktree：{path}",
     "sidebar.removeWorktreeTitle": "移除 worktree checkout {path}；保留分支",

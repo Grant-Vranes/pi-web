@@ -254,6 +254,8 @@ export const enLocale: LocalePlugin = {
     "sidebar.daysAgo": "{count} days ago",
     "sidebar.expandGroup": "Expand group",
     "sidebar.collapseGroup": "Collapse group",
+    "sidebar.expandAllGroups": "Expand all groups",
+    "sidebar.collapseAllGroups": "Collapse all groups",
     "sidebar.messagesCount": "{count} msgs",
     "sidebar.worktreePath": "Worktree: {path}",
     "sidebar.removeWorktreeTitle": "Remove worktree checkout {path}; the branch is kept",
