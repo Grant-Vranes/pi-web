@@ -1605,18 +1605,20 @@ span.token.table {
   background: color-mix(in srgb, var(--bg-hover) 58%, var(--bg-panel));
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+  /* No transform in the hover state: a translateY(-1px) hover nudge slides
+     the button out from under a cursor resting near an edge, dropping
+     :hover, which slides it back — an endless up-down flap. Background,
+     border, and color alone carry the hover cue. */
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 .project-rail-item:hover {
   border-color: transparent;
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-hover));
   color: var(--text);
-  transform: translateY(-1px);
 }
 .project-rail-add:hover {
   background: var(--bg-hover);
   color: var(--text);
-  transform: translateY(-1px);
 }
 .project-rail-item.is-active {
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-selected));
@@ -1726,7 +1728,12 @@ span.token.table {
   color: var(--text);
   font-size: 12px;
   line-height: 1.45;
-  pointer-events: none;
+  /* Interactive so the pointer can rest on the card: while it is over the
+     card, the card stays open (the rail cancels its scheduled close). With
+     pointer-events:none the card died the moment the pointer left the tile,
+     so moving onto the card closed it and every boundary crossing remounted
+     it with a replayed slide — perceived as flicker/jitter. */
+  pointer-events: auto;
   user-select: none;
   /* left/top come from inline style (viewport-space coords); no transform
      in the resting state, so entry keyframes must not leave one behind. */

@@ -124,6 +124,9 @@ const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const PROJECT_RAIL_STORAGE_KEY = "pi-web:project-rail-history";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
+// Grace period before the rail tooltip closes after the pointer leaves the
+// tile/card, so crossing the gap between them never blinks the card.
+const PROJECT_RAIL_TOOLTIP_HIDE_DELAY_MS = 160;
 
 function loadLastCustomCwd(): string {
   if (typeof window === "undefined") return "";
@@ -1775,6 +1778,31 @@ function ProjectRail({
   // The hovered tile element, captured in onMouseEnter so the tooltip has a
   // stable anchor regardless of ref-callback timing.
   const [hoveredEl, setHoveredEl] = useState<HTMLElement | null>(null);
+  // The card stays open while the pointer is over the tile OR the card
+  // itself. Leaving either schedules a short-delay close so the pointer can
+  // cross the tile→card gap without the card blinking (each remount replays
+  // the entrance slide, which reads as jitter).
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScheduledClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+  const openTooltip = useCallback((key: string, el: HTMLElement) => {
+    cancelScheduledClose();
+    setHoveredKey(key);
+    setHoveredEl(el);
+  }, [cancelScheduledClose]);
+  const scheduleTooltipClose = useCallback(() => {
+    cancelScheduledClose();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setHoveredKey(null);
+      setHoveredEl(null);
+    }, PROJECT_RAIL_TOOLTIP_HIDE_DELAY_MS);
+  }, [cancelScheduledClose]);
+  useEffect(() => cancelScheduledClose, [cancelScheduledClose]);
 
   // Index running-session model/state snapshots by id for O(1) lookup.
   const detailById = useMemo(() => {
@@ -1801,14 +1829,8 @@ function ProjectRail({
             <div
               key={project.key}
               className="project-rail-tile"
-              onMouseEnter={(event) => {
-                setHoveredKey(project.key);
-                setHoveredEl(event.currentTarget as HTMLElement);
-              }}
-              onMouseLeave={() => {
-                setHoveredKey((current) => (current === project.key ? null : current));
-                setHoveredEl((current) => (current ? null : current));
-              }}
+              onMouseEnter={(event) => openTooltip(project.key, event.currentTarget as HTMLElement)}
+              onMouseLeave={scheduleTooltipClose}
             >
               <button
                 type="button"
@@ -1847,7 +1869,6 @@ function ProjectRail({
                   onReorder(keys);
                 }}
                 onClick={() => onSelect(project)}
-                title={project.root}
                 aria-label={project.root}
                 aria-current={active ? "page" : undefined}
               >
@@ -1863,6 +1884,8 @@ function ProjectRail({
                   detailById={detailById}
                   unreadSessionIds={unreadSessionIds}
                   anchorEl={hoveredEl}
+                  onMouseEnter={cancelScheduledClose}
+                  onMouseLeave={scheduleTooltipClose}
                 />
               ) : null}
             </div>
@@ -1890,6 +1913,8 @@ function ProjectRailTooltip({
   detailById,
   unreadSessionIds,
   anchorEl,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   project: ProjectSelection;
   allSessions: readonly SessionInfo[];
@@ -1897,6 +1922,8 @@ function ProjectRailTooltip({
   detailById: Map<string, RunningRpcSessionDetail>;
   unreadSessionIds: ReadonlySet<string>;
   anchorEl: HTMLElement | null | undefined;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const { t } = useI18n();
   const name = project.root.split(/[\\/]/).filter(Boolean).pop() || project.root;
@@ -1974,7 +2001,14 @@ function ProjectRailTooltip({
   }, [anchorRect, cardSize]);
 
   return createPortal(
-    <div className="project-rail-tooltip" role="tooltip" style={style} ref={cardRef}>
+    <div
+      className="project-rail-tooltip"
+      role="tooltip"
+      style={style}
+      ref={cardRef}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
       <div className="project-rail-tooltip-head">
         <span className="project-rail-tooltip-name">{name}</span>
         <span className="project-rail-tooltip-path">{displayCwd(project.root)}</span>
