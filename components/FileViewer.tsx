@@ -27,6 +27,8 @@ import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
+  resolveInitialBaseMtimeMs,
+  resolveInitialDraft,
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
@@ -53,6 +55,7 @@ interface FileData {
   content: string;
   language: string;
   size: number;
+  mtimeMs: number;
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
@@ -207,7 +210,7 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
 
 function getFileApiUrl(
   filePath: string,
-  type: "read" | "download" | "meta" | "preview" | "watch",
+  type: "read" | "download" | "meta" | "preview" | "watch" | "write",
   sourceSessionId?: string | null,
   params: Record<string, string | number | undefined> = {},
 ): string {
@@ -984,6 +987,8 @@ function TextFileViewer({
   const initialWrapLines = initialState?.wrapLines ?? false;
   const initialScrollTop = initialState?.scrollTop ?? 0;
   const initialScrollLeft = initialState?.scrollLeft ?? 0;
+  const initialDraft = resolveInitialDraft(initialState);
+  const initialBaseMtimeMs = resolveInitialBaseMtimeMs(initialState);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
@@ -1001,9 +1006,18 @@ function TextFileViewer({
     wrapLines: initialWrapLines,
     scrollTop: initialScrollTop,
     scrollLeft: initialScrollLeft,
+    draft: initialDraft,
+    baseMtimeMs: initialBaseMtimeMs,
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [editorText, setEditorText] = useState<string | null>(initialDraft);
+  const [saveConflict, setSaveConflict] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorGutterRef = useRef<HTMLDivElement | null>(null);
+  const isEditing = editorText !== null;
 
   onStateChangeRef.current = onStateChange;
 
@@ -1020,32 +1034,6 @@ function TextFileViewer({
     });
   }, []);
 
-  useEffect(() => {
-    const nextState: FileViewerState = {
-      displayMode: requestedInitialDisplayMode,
-      wrapLines: initialWrapLines,
-      scrollTop: initialScrollTop,
-      scrollLeft: initialScrollLeft,
-    };
-
-    viewerStateRef.current = nextState;
-    scrollRestorePendingRef.current = true;
-    autoDiffAppliedRef.current = false;
-    setDisplayMode(requestedInitialDisplayMode);
-    setWrapLines(initialWrapLines);
-
-    return () => {
-      onStateChangeRef.current?.({ ...viewerStateRef.current });
-    };
-  }, [
-    filePath,
-    sourceSessionId,
-    requestedInitialDisplayMode,
-    initialWrapLines,
-    initialScrollTop,
-    initialScrollLeft,
-  ]);
-
   const fetchContent = useCallback((filePath: string) => {
     const requestId = ++contentRequestRef.current;
     return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
@@ -1058,6 +1046,14 @@ function TextFileViewer({
         }
         setError(null);
         setData(d);
+        // Draft absent → adopt the fresh disk mtime. Draft present and equal
+        // to disk → clean editor, refresh the base too. Draft present and
+        // different → the draft's persisted base stays authoritative so a
+        // stale save conflicts instead of silently overwriting.
+        const currentDraft = viewerStateRef.current.draft;
+        if (currentDraft === null || currentDraft === d.content) {
+          viewerStateRef.current.baseMtimeMs = d.mtimeMs;
+        }
         return d;
       })
       .catch((e) => {
@@ -1066,6 +1062,116 @@ function TextFileViewer({
         return null;
       });
   }, [sourceSessionId]);
+
+  const dirty = editorText !== null && editorText !== (data?.content ?? "");
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  const persistViewerState = useCallback(() => {
+    onStateChangeRef.current?.({ ...viewerStateRef.current });
+  }, []);
+
+  const updateEditorText = useCallback((next: string) => {
+    setEditorText(next);
+    viewerStateRef.current.draft = next;
+    persistViewerState();
+  }, [persistViewerState]);
+
+  const enterEditMode = useCallback(() => {
+    if (!data) return;
+    updateDisplayMode("source");
+    setSaveConflict(false);
+    setSaveError(null);
+    setEditorText(data.content);
+    viewerStateRef.current.draft = data.content;
+    persistViewerState();
+  }, [data, persistViewerState, updateDisplayMode]);
+
+  const exitEditMode = useCallback(() => {
+    if (viewerStateRef.current.draft !== null && viewerStateRef.current.draft !== (data?.content ?? "")) {
+      if (!window.confirm(t("i18n.confirmDiscard"))) return;
+    }
+    setEditorText(null);
+    viewerStateRef.current.draft = null;
+    setSaveConflict(false);
+    setSaveError(null);
+    persistViewerState();
+  }, [data?.content, persistViewerState, t]);
+
+  const reloadFromDisk = useCallback(() => {
+    setEditorText(null);
+    viewerStateRef.current.draft = null;
+    setSaveConflict(false);
+    setSaveError(null);
+    void fetchContent(filePath);
+  }, [fetchContent, filePath]);
+
+  const saveDraft = useCallback(async (options: { force?: boolean } = {}) => {
+    const currentDraft = editorText;
+    if (currentDraft === null || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const response = await fetch(getFileApiUrl(filePath, "write", sourceSessionId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: currentDraft,
+          baseMtimeMs: options.force ? null : viewerStateRef.current.baseMtimeMs,
+        }),
+      });
+      if (response.status === 409) {
+        setSaveConflict(true);
+        return;
+      }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        setSaveError(payload?.error ?? t("i18n.saveFailed"));
+        return;
+      }
+      const result = await response.json() as { mtimeMs?: number; size?: number };
+      viewerStateRef.current.baseMtimeMs = result.mtimeMs ?? viewerStateRef.current.baseMtimeMs;
+      setData((current) => (current
+        ? { ...current, content: currentDraft, size: result.size ?? current.size }
+        : current));
+      setSaveConflict(false);
+    } catch (error) {
+      setSaveError(String(error));
+    } finally {
+      setSaving(false);
+    }
+  }, [editorText, filePath, saving, sourceSessionId, t]);
+
+  useEffect(() => {
+    const nextState: FileViewerState = {
+      displayMode: requestedInitialDisplayMode,
+      wrapLines: initialWrapLines,
+      scrollTop: initialScrollTop,
+      scrollLeft: initialScrollLeft,
+      draft: initialDraft,
+      baseMtimeMs: initialBaseMtimeMs,
+    };
+
+    viewerStateRef.current = nextState;
+    scrollRestorePendingRef.current = true;
+    autoDiffAppliedRef.current = false;
+    setDisplayMode(requestedInitialDisplayMode);
+    setWrapLines(initialWrapLines);
+    setEditorText(initialDraft);
+
+    return () => {
+      onStateChangeRef.current?.({ ...viewerStateRef.current });
+    };
+  }, [
+    filePath,
+    sourceSessionId,
+    requestedInitialDisplayMode,
+    initialWrapLines,
+    initialScrollTop,
+    initialScrollLeft,
+    initialDraft,
+    initialBaseMtimeMs,
+  ]);
 
   const fetchGitDiff = useCallback(async (targetPath: string) => {
     const requestId = ++gitDiffRequestRef.current;
@@ -1124,6 +1230,7 @@ function TextFileViewer({
     if (!watchEnabled) return;
 
     const synchronize = () => {
+      if (dirtyRef.current) return; // never clobber in-progress edits
       void fetchContent(filePath);
       void fetchGitDiff(filePath);
     };
@@ -1244,6 +1351,28 @@ function TextFileViewer({
   }, [displayMode, mentionLineRange, onMentionLines]);
 
   useEffect(() => {
+    if (!isEditing) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveDraft();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isEditing, saveDraft]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
+
+  useEffect(() => {
     if (!scrollRestorePendingRef.current || loading) return;
     if (error && !isDeletedDiff) return;
     if (requestedInitialDisplayMode === "diff" && !gitDiffResolved) return;
@@ -1325,6 +1454,13 @@ function TextFileViewer({
         </span>
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
+        {dirty && (
+          <span
+            className="file-viewer-dirty-dot"
+            title={t("i18n.unsavedChanges")}
+            aria-label={t("i18n.unsavedChanges")}
+          />
+        )}
         {!isDeletedDiff && (
           <span
             title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
@@ -1363,7 +1499,41 @@ function TextFileViewer({
           )}
 
           <div className="file-viewer-actions">
-            {(onAtMention || onMentionLines) && (
+            {!isDeletedDiff && (isEditing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void saveDraft()}
+                  disabled={!dirty || saving}
+                  className="file-viewer-mode-button"
+                  style={{
+                    background: dirty ? "var(--bg-selected)" : "transparent",
+                    color: dirty ? "var(--text)" : "var(--text-muted)",
+                  }}
+                >
+                  {saving ? t("i18n.saving") : t("i18n.save")}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitEditMode}
+                  disabled={saving}
+                  className="file-viewer-mode-button"
+                >
+                  {t("i18n.doneEditing")}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={enterEditMode}
+                className="file-viewer-mode-button"
+                title={t("i18n.editFile")}
+                aria-label={t("i18n.editFile")}
+              >
+                {t("i18n.editFile")}
+              </button>
+            ))}
+            {!isEditing && (onAtMention || onMentionLines) && (
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
@@ -1389,7 +1559,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {effectiveDisplayMode === "source" && (
+            {effectiveDisplayMode === "source" && !isEditing && (
               <>
                 <button
                   type="button"
@@ -1418,6 +1588,20 @@ function TextFileViewer({
         </div>
       </div>
 
+      {saveConflict && (
+        <div className="file-viewer-conflict-banner" role="alert">
+          <span style={{ flex: 1 }}>{t("i18n.fileChangedOnDisk")}</span>
+          <button type="button" onClick={reloadFromDisk}>{t("i18n.reloadFile")}</button>
+          <button type="button" onClick={() => void saveDraft({ force: true })}>{t("i18n.overwrite")}</button>
+        </div>
+      )}
+      {saveError && !saveConflict && (
+        <div className="file-viewer-conflict-banner" role="alert">
+          <span style={{ flex: 1 }}>{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)}>{t("i18n.cancel")}</button>
+        </div>
+      )}
+
       {/* Content area */}
       <div
         ref={contentRef}
@@ -1428,7 +1612,64 @@ function TextFileViewer({
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
+        {isEditing ? (
+          <div className="file-editor" style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg)" }}>
+            <div
+              aria-hidden="true"
+              ref={editorGutterRef}
+              className="file-editor-gutter"
+              style={{
+                flexShrink: 0,
+                overflow: "hidden",
+                padding: "12px 0",
+                textAlign: "right",
+                color: "var(--text-dim)",
+                background: "var(--bg-panel)",
+                borderRight: "1px solid var(--border)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                fontVariantNumeric: "tabular-nums",
+                lineHeight: "20.8px",
+                userSelect: "none",
+                width: 48,
+              }}
+            >
+              {(editorText ?? "").split("\n").map((_line, lineIndex) => (
+                <div key={`editor-line-${lineIndex}`} style={{ paddingRight: 10 }}>{lineIndex + 1}</div>
+              ))}
+            </div>
+            <textarea
+              ref={editorRef}
+              className="file-editor-textarea"
+              value={editorText ?? ""}
+              onChange={(event) => updateEditorText(event.target.value)}
+              onScroll={(event) => {
+                if (editorGutterRef.current) {
+                  editorGutterRef.current.scrollTop = event.currentTarget.scrollTop;
+                }
+              }}
+              spellCheck={false}
+              wrap="off"
+              aria-label={getRelativeFilePath(filePath, cwd)}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: 0,
+                outline: "none",
+                resize: "none",
+                padding: "12px 16px",
+                background: "var(--bg)",
+                color: "var(--text)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                lineHeight: "20.8px",
+                whiteSpace: "pre",
+                overflow: "auto",
+                tabSize: 4,
+              }}
+            />
+          </div>
+        ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

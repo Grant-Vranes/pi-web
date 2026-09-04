@@ -986,6 +986,41 @@ pre, code {
   flex: 0 0 7px;
 }
 
+/* File viewer: edit mode + save state */
+.file-viewer-dirty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+}
+
+.file-viewer-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: #450a0a;
+  color: #fecaca;
+  border-bottom: 1px solid #7f1d1d;
+  flex-shrink: 0;
+}
+
+.file-viewer-conflict-banner button {
+  border: 1px solid #7f1d1d;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: transparent;
+  color: #fecaca;
+  cursor: pointer;
+}
+
+.file-viewer-conflict-banner button:hover {
+  background: #7f1d1d;
+}
+
 .file-viewer-controls {
   display: flex;
   align-items: center;
