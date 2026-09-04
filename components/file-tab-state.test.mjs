@@ -86,9 +86,9 @@ test("every explicit diff activation resets the mode and increments the revision
   assert.equal(first[0].viewerRevision, 1);
   assert.deepEqual(first[0].viewerState, {
     displayMode: "diff",
-    wrapLines: true,
-    scrollTop: 240,
-    scrollLeft: 16,
+    wrapLines: false,
+    scrollTop: 0,
+    scrollLeft: 0,
   });
 
   const returnedToSource = saveFileViewerState(first, tabA.id, 1, tabA.viewerState);
@@ -97,7 +97,7 @@ test("every explicit diff activation resets the mode and increments the revision
   assert.equal(second[0].viewerState.displayMode, "diff");
 });
 
-test("explicit diff activation preserves draft, base mtime, and view offsets", () => {
+test("explicit diff activation preserves draft and base mtime while resetting scroll", () => {
   const editingTab = {
     ...tabA,
     viewerState: {
@@ -110,9 +110,9 @@ test("explicit diff activation preserves draft, base mtime, and view offsets", (
 
   assert.deepEqual(next.viewerState, {
     displayMode: "diff",
-    wrapLines: true,
-    scrollTop: 240,
-    scrollLeft: 16,
+    wrapLines: false,
+    scrollTop: 0,
+    scrollLeft: 0,
     draft: "edited text",
     baseMtimeMs: 1234.5,
   });

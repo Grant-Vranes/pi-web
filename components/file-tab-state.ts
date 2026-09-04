@@ -46,13 +46,12 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     if (input.modeHint) {
       const previousState = tab.viewerState;
       const nextViewerState: FileViewerState = {
+        ...(previousState ?? {}),
         displayMode: input.modeHint,
-        wrapLines: previousState?.wrapLines ?? false,
-        scrollTop: previousState?.scrollTop ?? 0,
-        scrollLeft: previousState?.scrollLeft ?? 0,
+        wrapLines: false,
+        scrollTop: 0,
+        scrollLeft: 0,
       };
-      if (previousState?.draft !== undefined) nextViewerState.draft = previousState.draft;
-      if (previousState?.baseMtimeMs !== undefined) nextViewerState.baseMtimeMs = previousState.baseMtimeMs;
 
       next.initialDisplayMode = input.modeHint;
       next.viewerState = nextViewerState;
