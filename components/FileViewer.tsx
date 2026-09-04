@@ -1127,6 +1127,7 @@ function TextFileViewer({
       }
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { error?: string } | null;
+        setSaveConflict(false);
         setSaveError(payload?.error ?? t("i18n.saveFailed"));
         return;
       }
@@ -1137,6 +1138,7 @@ function TextFileViewer({
         : current));
       setSaveConflict(false);
     } catch (error) {
+      setSaveConflict(false);
       setSaveError(String(error));
     } finally {
       setSaving(false);
@@ -1867,6 +1869,13 @@ function TextFileViewer({
                 type="text"
                 value={replacement}
                 onChange={(event) => setReplacement(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeSearch();
+                  }
+                }}
                 placeholder={t("i18n.replaceWith")}
                 aria-label={t("i18n.replaceWith")}
                 style={{ flex: 1 }}

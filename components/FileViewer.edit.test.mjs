@@ -28,6 +28,11 @@ test("TextFileViewer keeps edits safe from live reload and navigation", () => {
   assert.match(textViewer, /baseMtimeMs: initialBaseMtimeMs/);
 });
 
+test("TextFileViewer exposes overwrite failures after a stale conflict banner", () => {
+  assert.match(textViewer, /if \(!response\.ok\) \{[\s\S]*?setSaveConflict\(false\);[\s\S]*?setSaveError\(payload\?\.error \?\? t\("i18n\.saveFailed"\)\);[\s\S]*?return;/);
+  assert.match(textViewer, /catch \(error\) \{\s*setSaveConflict\(false\);\s*setSaveError\(String\(error\)\);\s*\}/);
+});
+
 test("TextFileViewer renders edit controls, dirty dot, and conflict banner", () => {
   assert.match(textViewer, /onClick=\{enterEditMode\}/);
   assert.match(textViewer, /onClick=\{exitEditMode\}/);

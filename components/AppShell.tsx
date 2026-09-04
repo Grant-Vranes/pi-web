@@ -479,6 +479,20 @@ export function AppShell() {
   fileTabsRef.current = fileTabs;
   activeFileTabIdRef.current = activeFileTabId;
 
+  const hasPersistedFileDraft = fileTabs.some(
+    (tab) => tab.viewerState?.draft !== null && tab.viewerState?.draft !== undefined,
+  );
+
+  useEffect(() => {
+    if (!hasPersistedFileDraft) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasPersistedFileDraft]);
+
   const handleFileViewerStateChange = useCallback((
     tabId: string,
     viewerRevision: number,

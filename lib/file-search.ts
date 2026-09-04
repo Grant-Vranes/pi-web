@@ -39,7 +39,7 @@ function foldMatchesAt(text: string, offset: number, query: string): boolean {
 }
 
 export function findMatches(content: string, query: string, caseSensitive: boolean): SearchMatch[] {
-  if (query.length === 0 || query.length > content.length) return [];
+  if (query.length === 0 || query.trim().length === 0 || query.length > content.length) return [];
 
   const matches: SearchMatch[] = [];
   const lastStart = content.length - query.length;

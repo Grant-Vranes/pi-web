@@ -44,13 +44,18 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     const next: Tab = { ...tab };
     if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
     if (input.modeHint) {
-      next.initialDisplayMode = input.modeHint;
-      next.viewerState = {
+      const previousState = tab.viewerState;
+      const nextViewerState: FileViewerState = {
         displayMode: input.modeHint,
-        wrapLines: tab.viewerState?.wrapLines ?? false,
-        scrollTop: 0,
-        scrollLeft: 0,
+        wrapLines: previousState?.wrapLines ?? false,
+        scrollTop: previousState?.scrollTop ?? 0,
+        scrollLeft: previousState?.scrollLeft ?? 0,
       };
+      if (previousState?.draft !== undefined) nextViewerState.draft = previousState.draft;
+      if (previousState?.baseMtimeMs !== undefined) nextViewerState.baseMtimeMs = previousState.baseMtimeMs;
+
+      next.initialDisplayMode = input.modeHint;
+      next.viewerState = nextViewerState;
       next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
     } else if (sourceChanged) {
       next.viewerRevision = (tab.viewerRevision ?? 0) + 1;

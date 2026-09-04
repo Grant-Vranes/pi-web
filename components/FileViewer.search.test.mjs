@@ -26,6 +26,10 @@ test("replace actions rewrite the draft", () => {
   assert.match(textViewer, /replaceAll\(editorText, searchMatches, replacement\)/);
 });
 
+test("replacement input closes search on Escape", () => {
+  assert.match(textViewer, /value=\{replacement\}[\s\S]*?onKeyDown=\{\(event\) => \{[\s\S]*?event\.key === "Escape"[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?closeSearch\(\);[\s\S]*?placeholder=\{t\("i18n\.replaceWith"\)\}/);
+});
+
 test("Cmd/Ctrl+F opens search without hijacking other inputs", () => {
   assert.match(textViewer, /event\.key\.toLowerCase\(\) !== "f"/);
   assert.match(textViewer, /closest\("input, textarea, \[contenteditable='true'\]"\)/);
