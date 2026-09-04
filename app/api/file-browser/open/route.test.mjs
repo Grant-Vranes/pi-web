@@ -12,15 +12,24 @@ test("reveal requests are guarded like /api/files and /api/terminal/open", () =>
   assert.match(source, /existsSync\(targetPath\)/);
 });
 
-test("file vs directory behaviour is implemented per platform", () => {
-  // macOS: reveal files with `open -R`, open directories with `open`.
-  assert.match(source, /command = "open";\s*\n\s*args = isDirectory \? \[nativePath\] : \["-R", nativePath\];/);
-  // Windows: explorer /select,<file> — no space after the comma.
-  assert.match(source, /command = "explorer";/);
-  assert.match(source, /`\/select,\$\{nativePath\}`/);
-  // Linux: xdg-open (directory itself, or the parent for files).
-  assert.match(source, /command = "xdg-open";/);
-  assert.match(source, /dirname\(nativePath\)/);
+test("command construction is delegated to the shared platform builder", () => {
+  assert.match(source, /const \{ command, args \} = buildFileBrowserCommand\(process\.platform, nativePath, isDirectory\)/);
+});
+
+test("lexical authorization precedes existence probing, which precedes the realpath check and the helper invocation", () => {
+  const postStart = source.indexOf("export async function POST");
+  const postSource = source.slice(postStart);
+  const lexical = postSource.indexOf("isFilePathAllowed(targetPath, allowedRoots)");
+  const exists = postSource.indexOf("existsSync(targetPath)");
+  const realpath = postSource.indexOf("isExistingFilePathAllowed(targetPath, allowedRoots)");
+  const openInFileBrowserCall = postSource.indexOf("const result = await openInFileBrowser(targetPath, isDirectory);");
+  assert.ok(lexical !== -1, "lexical allowed-roots check must exist");
+  assert.ok(exists !== -1, "existsSync must exist");
+  assert.ok(realpath !== -1, "realpath containment check must exist");
+  assert.ok(openInFileBrowserCall !== -1, "openInFileBrowser helper call must exist");
+  assert.ok(lexical < exists, "lexical allowed-roots check must precede existsSync");
+  assert.ok(exists < realpath, "existsSync must precede the realpath check");
+  assert.ok(realpath < openInFileBrowserCall, "no helper call may happen before all authorization passes");
 });
 
 test("spawn is detached, ignores stdio, and unrefs the child", () => {

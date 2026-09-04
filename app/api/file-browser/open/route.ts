@@ -1,24 +1,14 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { existsSync, statSync } from "fs";
-import { dirname } from "path";
 import {
   getAllowedFileRoots,
   isExistingFilePathAllowed,
   isFilePathAllowed,
 } from "@/lib/file-access";
+import { buildFileBrowserCommand } from "@/lib/file-browser-commands";
 import { toNativePath } from "@/lib/paths";
 import { isApiRequestAllowed } from "@/lib/request-security";
-
-/** Same access gate as /api/files and /api/terminal/open: only session cwds /
- *  project roots / explicitly allowed paths may be opened. */
-async function checkPathAllowed(targetPath: string): Promise<NextResponse | null> {
-  const allowedRoots = await getAllowedFileRoots();
-  if (!isFilePathAllowed(targetPath, allowedRoots) || !isExistingFilePathAllowed(targetPath, allowedRoots)) {
-    return NextResponse.json({ error: "Access denied" }, { status: 403 });
-  }
-  return null;
-}
 
 interface SpawnResult {
   ok: boolean;
@@ -36,22 +26,7 @@ function openInFileBrowser(targetPath: string, isDirectory: boolean): Promise<Sp
   return new Promise((resolve) => {
     try {
       const nativePath = toNativePath(targetPath);
-      let command: string;
-      let args: string[];
-      if (process.platform === "darwin") {
-        // `open -R` reveals the file selected in Finder; directories open in place.
-        command = "open";
-        args = isDirectory ? [nativePath] : ["-R", nativePath];
-      } else if (process.platform === "win32") {
-        command = "explorer";
-        // No space after "/select,"; backslash separators are required.
-        args = isDirectory ? [nativePath] : [`/select,${nativePath}`];
-      } else {
-        // Linux: no reveal convention — xdg-open the containing directory
-        // for files, the directory itself for directories.
-        command = "xdg-open";
-        args = [isDirectory ? nativePath : dirname(nativePath)];
-      }
+      const { command, args } = buildFileBrowserCommand(process.platform, nativePath, isDirectory);
 
       const child = spawn(command, args, { detached: true, stdio: "ignore" });
       child.on("error", (err) => {
@@ -72,24 +47,34 @@ function openInFileBrowser(targetPath: string, isDirectory: boolean): Promise<Sp
 //
 // Opens the OS native file browser at `path`: directories open in place,
 // files are revealed (containing folder shown, file selected). The path must
-// exist and pass the same allowed-roots gate as /api/files and
-// /api/terminal/open.
+// pass the allowed-roots gate (lexical check before any filesystem access,
+// then a realpath check) before it is opened.
 export async function POST(request: Request) {
   if (!isApiRequestAllowed(request)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
   try {
-    const body = await request.json().catch(() => ({})) as { path?: string };
-    const targetPath = body.path;
+    const body = await request.json().catch(() => null) as { path?: string } | null;
+    const targetPath = body?.path;
     if (!targetPath || typeof targetPath !== "string") {
       return NextResponse.json({ error: "path is required" }, { status: 400 });
+    }
+    // Lexical allowed-roots check BEFORE any filesystem access, so the
+    // 400 "Path does not exist" answer cannot be used to probe which paths
+    // exist outside the boundary.
+    const allowedRoots = await getAllowedFileRoots();
+    if (!isFilePathAllowed(targetPath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
     if (!existsSync(targetPath)) {
       return NextResponse.json({ error: `Path does not exist: ${targetPath}` }, { status: 400 });
     }
-    const denied = await checkPathAllowed(targetPath);
-    if (denied) return denied;
+    // Realpath-aware containment: reject symlink escapes. Runs after the
+    // existence check because realpath requires an existing path.
+    if (!isExistingFilePathAllowed(targetPath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
 
     let isDirectory: boolean;
     try {
