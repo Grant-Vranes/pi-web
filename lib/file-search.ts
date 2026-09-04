@@ -49,22 +49,10 @@ export function findMatches(content: string, query: string, caseSensitive: boole
   scan: while (cursor <= lastStart) {
     if (caseSensitive) {
       const index = content.indexOf(query, cursor);
-      if (index !== -1) {
-        line += countNewlinesBetween(content, cursor, index);
-        matches.push({ line, start: index, end: index + query.length });
-        cursor = index + query.length;
-        continue;
-      }
-      let fallbackIndex = -1;
-      for (let index = cursor; index <= lastStart; index++) {
-        if (foldMatchesAt(content, index, query)) {
-          fallbackIndex = index;
-        }
-      }
-      if (fallbackIndex === -1) return matches;
-      line += countNewlinesBetween(content, cursor, fallbackIndex);
-      matches.push({ line, start: fallbackIndex, end: fallbackIndex + query.length });
-      cursor = fallbackIndex + query.length;
+      if (index === -1) return matches;
+      line += countNewlinesBetween(content, cursor, index);
+      matches.push({ line, start: index, end: index + query.length });
+      cursor = index + query.length;
       continue;
     }
     for (let index = cursor; index <= lastStart; index++) {
