@@ -97,6 +97,42 @@ test("every explicit diff activation resets the mode and increments the revision
   assert.equal(second[0].viewerState.displayMode, "diff");
 });
 
+test("explicit diff activation preserves draft and base mtime while resetting scroll", () => {
+  const editingTab = {
+    ...tabA,
+    viewerState: {
+      ...tabA.viewerState,
+      draft: "edited text",
+      baseMtimeMs: 1234.5,
+    },
+  };
+  const [next] = openFileTab([editingTab], { ...openA, modeHint: "diff" });
+
+  assert.deepEqual(next.viewerState, {
+    displayMode: "diff",
+    wrapLines: true,
+    scrollTop: 0,
+    scrollLeft: 0,
+    draft: "edited text",
+    baseMtimeMs: 1234.5,
+  });
+
+  const [withoutDraft] = openFileTab([tabB], {
+    fileName: "b.ts",
+    filePath: "/repo/b.ts",
+    tabId: "file:/repo/b.ts",
+    modeHint: "diff",
+  });
+  assert.deepEqual(withoutDraft.viewerState, {
+    displayMode: "diff",
+    wrapLines: false,
+    scrollTop: 0,
+    scrollLeft: 0,
+  });
+  assert.equal(Object.hasOwn(withoutDraft.viewerState, "draft"), false);
+  assert.equal(Object.hasOwn(withoutDraft.viewerState, "baseMtimeMs"), false);
+});
+
 test("a remounted viewer ignores the previous revision's late cleanup", () => {
   const reopened = openFileTab([tabA], { ...openA, modeHint: "diff" });
   const stale = saveFileViewerState(reopened, tabA.id, 0, tabA.viewerState);

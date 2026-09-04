@@ -24,9 +24,12 @@ import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDi
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
+import { findMatches, replaceAll, replaceOne } from "@/lib/file-search";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
+  resolveInitialBaseMtimeMs,
+  resolveInitialDraft,
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
@@ -53,6 +56,7 @@ interface FileData {
   content: string;
   language: string;
   size: number;
+  mtimeMs: number;
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
@@ -207,7 +211,7 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
 
 function getFileApiUrl(
   filePath: string,
-  type: "read" | "download" | "meta" | "preview" | "watch",
+  type: "read" | "download" | "meta" | "preview" | "watch" | "write",
   sourceSessionId?: string | null,
   params: Record<string, string | number | undefined> = {},
 ): string {
@@ -984,6 +988,8 @@ function TextFileViewer({
   const initialWrapLines = initialState?.wrapLines ?? false;
   const initialScrollTop = initialState?.scrollTop ?? 0;
   const initialScrollLeft = initialState?.scrollLeft ?? 0;
+  const initialDraft = resolveInitialDraft(initialState);
+  const initialBaseMtimeMs = resolveInitialBaseMtimeMs(initialState);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
@@ -1001,9 +1007,18 @@ function TextFileViewer({
     wrapLines: initialWrapLines,
     scrollTop: initialScrollTop,
     scrollLeft: initialScrollLeft,
+    draft: initialDraft,
+    baseMtimeMs: initialBaseMtimeMs,
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [editorText, setEditorText] = useState<string | null>(initialDraft);
+  const [saveConflict, setSaveConflict] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorGutterRef = useRef<HTMLDivElement | null>(null);
+  const isEditing = editorText !== null;
 
   onStateChangeRef.current = onStateChange;
 
@@ -1020,32 +1035,6 @@ function TextFileViewer({
     });
   }, []);
 
-  useEffect(() => {
-    const nextState: FileViewerState = {
-      displayMode: requestedInitialDisplayMode,
-      wrapLines: initialWrapLines,
-      scrollTop: initialScrollTop,
-      scrollLeft: initialScrollLeft,
-    };
-
-    viewerStateRef.current = nextState;
-    scrollRestorePendingRef.current = true;
-    autoDiffAppliedRef.current = false;
-    setDisplayMode(requestedInitialDisplayMode);
-    setWrapLines(initialWrapLines);
-
-    return () => {
-      onStateChangeRef.current?.({ ...viewerStateRef.current });
-    };
-  }, [
-    filePath,
-    sourceSessionId,
-    requestedInitialDisplayMode,
-    initialWrapLines,
-    initialScrollTop,
-    initialScrollLeft,
-  ]);
-
   const fetchContent = useCallback((filePath: string) => {
     const requestId = ++contentRequestRef.current;
     return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
@@ -1058,6 +1047,14 @@ function TextFileViewer({
         }
         setError(null);
         setData(d);
+        // Draft absent → adopt the fresh disk mtime. Draft present and equal
+        // to disk → clean editor, refresh the base too. Draft present and
+        // different → the draft's persisted base stays authoritative so a
+        // stale save conflicts instead of silently overwriting.
+        const currentDraft = viewerStateRef.current.draft;
+        if (currentDraft === null || currentDraft === d.content) {
+          viewerStateRef.current.baseMtimeMs = d.mtimeMs;
+        }
         return d;
       })
       .catch((e) => {
@@ -1066,6 +1063,185 @@ function TextFileViewer({
         return null;
       });
   }, [sourceSessionId]);
+
+  const dirty = editorText !== null && editorText !== (data?.content ?? "");
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  const persistViewerState = useCallback(() => {
+    onStateChangeRef.current?.({ ...viewerStateRef.current });
+  }, []);
+
+  const updateEditorText = useCallback((next: string) => {
+    setEditorText(next);
+    viewerStateRef.current.draft = next;
+    persistViewerState();
+  }, [persistViewerState]);
+
+  const enterEditMode = useCallback(() => {
+    if (!data) return;
+    updateDisplayMode("source");
+    setSaveConflict(false);
+    setSaveError(null);
+    setEditorText(data.content);
+    viewerStateRef.current.draft = data.content;
+    persistViewerState();
+  }, [data, persistViewerState, updateDisplayMode]);
+
+  const exitEditMode = useCallback(() => {
+    if (viewerStateRef.current.draft !== null && viewerStateRef.current.draft !== (data?.content ?? "")) {
+      if (!window.confirm(t("i18n.confirmDiscard"))) return;
+    }
+    setEditorText(null);
+    viewerStateRef.current.draft = null;
+    setSaveConflict(false);
+    setSaveError(null);
+    persistViewerState();
+  }, [data?.content, persistViewerState, t]);
+
+  const reloadFromDisk = useCallback(() => {
+    setEditorText(null);
+    viewerStateRef.current.draft = null;
+    setSaveConflict(false);
+    setSaveError(null);
+    void fetchContent(filePath);
+  }, [fetchContent, filePath]);
+
+  const saveDraft = useCallback(async (options: { force?: boolean } = {}) => {
+    const currentDraft = editorText;
+    if (currentDraft === null || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const response = await fetch(getFileApiUrl(filePath, "write", sourceSessionId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: currentDraft,
+          baseMtimeMs: options.force ? null : viewerStateRef.current.baseMtimeMs,
+        }),
+      });
+      if (response.status === 409) {
+        setSaveConflict(true);
+        return;
+      }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        setSaveConflict(false);
+        setSaveError(payload?.error ?? t("i18n.saveFailed"));
+        return;
+      }
+      const result = await response.json() as { mtimeMs?: number; size?: number };
+      viewerStateRef.current.baseMtimeMs = result.mtimeMs ?? viewerStateRef.current.baseMtimeMs;
+      setData((current) => (current
+        ? { ...current, content: currentDraft, size: result.size ?? current.size }
+        : current));
+      setSaveConflict(false);
+    } catch (error) {
+      setSaveConflict(false);
+      setSaveError(String(error));
+    } finally {
+      setSaving(false);
+    }
+  }, [editorText, filePath, saving, sourceSessionId, t]);
+
+  const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
+  const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
+  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [replaceVisible, setReplaceVisible] = useState(false);
+  const [replacement, setReplacement] = useState("");
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const searchText = isEditing ? (editorText ?? "") : (data?.content ?? "");
+
+  const searchMatches = useMemo(
+    () => (searchOpen ? findMatches(searchText, searchQuery, searchCaseSensitive) : []),
+    [searchCaseSensitive, searchOpen, searchQuery, searchText],
+  );
+  const clampedActiveIndex = searchMatches.length === 0
+    ? 0
+    : Math.min(activeMatchIndex, searchMatches.length - 1);
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    setActiveMatchIndex(0);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setReplaceVisible(false);
+  }, []);
+
+  const goToMatch = useCallback((index: number) => {
+    if (searchMatches.length === 0) return;
+    const nextIndex = ((index % searchMatches.length) + searchMatches.length) % searchMatches.length;
+    setActiveMatchIndex(nextIndex);
+    const match = searchMatches[nextIndex];
+    if (isEditing) {
+      const editor = editorRef.current;
+      if (editor) {
+        editor.focus();
+        editor.setSelectionRange(match.start, match.end);
+        // Center the match line; wrapped lines make this an approximation.
+        const EDITOR_LINE_HEIGHT = 20.8;
+        const targetTop = (match.line - 1) * EDITOR_LINE_HEIGHT - editor.clientHeight / 2;
+        editor.scrollTop = Math.max(0, targetTop);
+      }
+    } else {
+      const line = contentRef.current?.querySelector<HTMLElement>(
+        `.file-source-line[data-line-number="${match.line}"]`,
+      );
+      line?.scrollIntoView({ block: "center" });
+    }
+  }, [isEditing, searchMatches]);
+
+  const replaceCurrentMatch = useCallback(() => {
+    const match = searchMatches[clampedActiveIndex];
+    if (!match || editorText === null) return;
+    updateEditorText(replaceOne(editorText, match, replacement));
+  }, [clampedActiveIndex, editorText, replacement, searchMatches, updateEditorText]);
+
+  const replaceAllMatches = useCallback(() => {
+    if (editorText === null || searchMatches.length === 0) return;
+    const result = replaceAll(editorText, searchMatches, replacement);
+    updateEditorText(result.content);
+  }, [editorText, replacement, searchMatches, updateEditorText]);
+
+  useEffect(() => {
+    const nextState: FileViewerState = {
+      displayMode: requestedInitialDisplayMode,
+      wrapLines: initialWrapLines,
+      scrollTop: initialScrollTop,
+      scrollLeft: initialScrollLeft,
+      draft: initialDraft,
+      baseMtimeMs: initialBaseMtimeMs,
+    };
+
+    viewerStateRef.current = nextState;
+    scrollRestorePendingRef.current = true;
+    autoDiffAppliedRef.current = false;
+    setDisplayMode(requestedInitialDisplayMode);
+    setWrapLines(initialWrapLines);
+    setEditorText(initialDraft);
+
+    return () => {
+      onStateChangeRef.current?.({ ...viewerStateRef.current });
+    };
+  }, [
+    filePath,
+    sourceSessionId,
+    requestedInitialDisplayMode,
+    initialWrapLines,
+    initialScrollTop,
+    initialScrollLeft,
+    initialDraft,
+    initialBaseMtimeMs,
+  ]);
 
   const fetchGitDiff = useCallback(async (targetPath: string) => {
     const requestId = ++gitDiffRequestRef.current;
@@ -1124,6 +1300,7 @@ function TextFileViewer({
     if (!watchEnabled) return;
 
     const synchronize = () => {
+      if (dirtyRef.current) return; // never clobber in-progress edits
       void fetchContent(filePath);
       void fetchGitDiff(filePath);
     };
@@ -1169,9 +1346,6 @@ function TextFileViewer({
       updateDisplayMode("preview");
     }
   }, [data?.language, updateDisplayMode]);
-
-  const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
-  const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
 
   useEffect(() => {
     if (gitDiffResolved && !hasGitDiff && displayMode === "diff") updateDisplayMode("source");
@@ -1244,6 +1418,91 @@ function TextFileViewer({
   }, [displayMode, mentionLineRange, onMentionLines]);
 
   useEffect(() => {
+    if (!isEditing) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveDraft();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isEditing, saveDraft]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.repeat
+        || event.key.toLowerCase() !== "f"
+        || (!event.metaKey && !event.ctrlKey)
+        || event.altKey
+        || event.shiftKey
+      ) return;
+      const target = event.target;
+      const insideTextField = target instanceof Element
+        && target.closest("input, textarea, [contenteditable='true']");
+      const insideOwnEditor = target instanceof Node
+        && editorRef.current !== null
+        && editorRef.current.contains(target);
+      if (insideTextField && !insideOwnEditor) return;
+      if (!isEditing && effectiveDisplayMode !== "source") return;
+      event.preventDefault();
+      openSearch();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [effectiveDisplayMode, isEditing, openSearch]);
+
+  useEffect(() => {
+    if (!isEditing || searchOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target;
+      const insideTextField = target instanceof Element
+        && target.closest("input, textarea, [contenteditable='true']");
+      const insideOwnEditor = target instanceof Node
+        && editorRef.current !== null
+        && editorRef.current.contains(target);
+      if (insideTextField && !insideOwnEditor) return;
+      exitEditMode();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [exitEditMode, isEditing, searchOpen]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    const root = contentRef.current;
+    if (!root) return;
+    const lines = root.querySelectorAll<HTMLElement>(".file-source-line");
+    for (const line of lines) {
+      line.classList.remove("file-source-search-hit", "file-source-search-hit-active");
+    }
+    if (!searchOpen || searchMatches.length === 0) return;
+    for (const match of searchMatches) {
+      root.querySelector<HTMLElement>(`.file-source-line[data-line-number="${match.line}"]`)
+        ?.classList.add("file-source-search-hit");
+    }
+    root.querySelector<HTMLElement>(
+      `.file-source-line[data-line-number="${searchMatches[clampedActiveIndex].line}"]`,
+    )?.classList.add("file-source-search-hit-active");
+  }, [clampedActiveIndex, data?.content, isEditing, searchMatches, searchOpen, wrapLines]);
+
+  useEffect(() => {
+    setActiveMatchIndex(0);
+  }, [searchCaseSensitive, searchQuery]);
+
+  useEffect(() => {
     if (!scrollRestorePendingRef.current || loading) return;
     if (error && !isDeletedDiff) return;
     if (requestedInitialDisplayMode === "diff" && !gitDiffResolved) return;
@@ -1292,7 +1551,6 @@ function TextFileViewer({
   const markdownDirectory = getFileDirectory(filePath);
   const lines = content.split("\n");
   const useLightweightSource = lines.length > SOURCE_HIGHLIGHT_MAX_LINES;
-  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
     : [
@@ -1325,6 +1583,13 @@ function TextFileViewer({
         </span>
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
+        {dirty && (
+          <span
+            className="file-viewer-dirty-dot"
+            title={t("i18n.unsavedChanges")}
+            aria-label={t("i18n.unsavedChanges")}
+          />
+        )}
         {!isDeletedDiff && (
           <span
             title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
@@ -1363,7 +1628,60 @@ function TextFileViewer({
           )}
 
           <div className="file-viewer-actions">
-            {(onAtMention || onMentionLines) && (
+            {!isDeletedDiff && (isEditing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void saveDraft()}
+                  disabled={!dirty || saving}
+                  className="file-viewer-mode-button"
+                  style={{
+                    background: dirty ? "var(--bg-selected)" : "transparent",
+                    color: dirty ? "var(--text)" : "var(--text-muted)",
+                  }}
+                >
+                  {saving ? t("i18n.saving") : t("i18n.save")}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitEditMode}
+                  disabled={saving}
+                  className="file-viewer-mode-button"
+                >
+                  {t("i18n.doneEditing")}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={enterEditMode}
+                className="file-viewer-mode-button"
+                title={t("i18n.editFile")}
+                aria-label={t("i18n.editFile")}
+              >
+                {t("i18n.editFile")}
+              </button>
+            ))}
+            {!isDeletedDiff && (isEditing || effectiveDisplayMode === "source") && (
+              <button
+                type="button"
+                onClick={() => (searchOpen ? closeSearch() : openSearch())}
+                aria-pressed={searchOpen}
+                className="file-viewer-icon-button"
+                title={t("i18n.searchInFile")}
+                aria-label={t("i18n.searchInFile")}
+                style={{
+                  background: searchOpen ? "var(--bg-selected)" : "transparent",
+                  color: searchOpen ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.5" y2="16.5" />
+                </svg>
+              </button>
+            )}
+            {!isEditing && (onAtMention || onMentionLines) && (
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
@@ -1389,7 +1707,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {effectiveDisplayMode === "source" && (
+            {effectiveDisplayMode === "source" && !isEditing && (
               <>
                 <button
                   type="button"
@@ -1418,6 +1736,171 @@ function TextFileViewer({
         </div>
       </div>
 
+      {saveConflict && (
+        <div className="file-viewer-conflict-banner" role="alert">
+          <span style={{ flex: 1 }}>{t("i18n.fileChangedOnDisk")}</span>
+          <button type="button" onClick={reloadFromDisk}>{t("i18n.reloadFile")}</button>
+          <button type="button" onClick={() => void saveDraft({ force: true })}>{t("i18n.overwrite")}</button>
+        </div>
+      )}
+      {saveError && !saveConflict && (
+        <div className="file-viewer-conflict-banner" role="alert">
+          <span style={{ flex: 1 }}>{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)}>{t("i18n.cancel")}</button>
+        </div>
+      )}
+      {searchOpen && (
+        <div
+          className="file-search-bar"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            padding: "6px 12px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              ref={searchInputRef}
+              className="file-search-input"
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeSearch();
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  goToMatch(clampedActiveIndex + (event.shiftKey ? -1 : 1));
+                }
+              }}
+              placeholder={t("i18n.searchInFile")}
+              aria-label={t("i18n.searchInFile")}
+              style={{ flex: 1 }}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => setSearchCaseSensitive((current) => !current)}
+              aria-pressed={searchCaseSensitive}
+              className="file-viewer-mode-button"
+              title={t("i18n.matchCase")}
+              aria-label={t("i18n.matchCase")}
+              style={{
+                fontSize: 11,
+                background: searchCaseSensitive ? "var(--bg-selected)" : "transparent",
+                color: searchCaseSensitive ? "var(--text)" : "var(--text-muted)",
+              }}
+            >
+              Aa
+            </button>
+            <span
+              className="file-search-count"
+              style={{ minWidth: 64, textAlign: "center", fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+            >
+              {searchQuery === ""
+                ? ""
+                : searchMatches.length === 0
+                  ? t("i18n.noMatches")
+                  : `${clampedActiveIndex + 1}/${searchMatches.length}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToMatch(clampedActiveIndex - 1)}
+              disabled={searchMatches.length === 0}
+              className="file-viewer-icon-button"
+              title={t("i18n.previousMatch")}
+              aria-label={t("i18n.previousMatch")}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="18 15 12 9 6 15" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => goToMatch(clampedActiveIndex + 1)}
+              disabled={searchMatches.length === 0}
+              className="file-viewer-icon-button"
+              title={t("i18n.nextMatch")}
+              aria-label={t("i18n.nextMatch")}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {isEditing && (
+              <button
+                type="button"
+                onClick={() => setReplaceVisible((current) => !current)}
+                aria-pressed={replaceVisible}
+                className="file-viewer-mode-button"
+                title={t("i18n.showReplace")}
+                aria-label={t("i18n.showReplace")}
+                style={{
+                  background: replaceVisible ? "var(--bg-selected)" : "transparent",
+                  color: replaceVisible ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                {t("i18n.replace")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={closeSearch}
+              className="file-viewer-icon-button"
+              title={t("i18n.closeSearch")}
+              aria-label={t("i18n.closeSearch")}
+            >
+              <svg width="13" height="13" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <line x1="2" y1="2" x2="8" y2="8" />
+                <line x1="8" y1="2" x2="2" y2="8" />
+              </svg>
+            </button>
+          </div>
+          {isEditing && replaceVisible && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                className="file-search-input"
+                type="text"
+                value={replacement}
+                onChange={(event) => setReplacement(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeSearch();
+                  }
+                }}
+                placeholder={t("i18n.replaceWith")}
+                aria-label={t("i18n.replaceWith")}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={replaceCurrentMatch}
+                disabled={searchMatches.length === 0}
+                className="file-viewer-mode-button"
+              >
+                {t("i18n.replace")}
+              </button>
+              <button
+                type="button"
+                onClick={replaceAllMatches}
+                disabled={searchMatches.length === 0}
+                className="file-viewer-mode-button"
+              >
+                {t("i18n.replaceAll")}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Content area */}
       <div
         ref={contentRef}
@@ -1428,7 +1911,64 @@ function TextFileViewer({
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
+        {isEditing ? (
+          <div className="file-editor" style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg)" }}>
+            <div
+              aria-hidden="true"
+              ref={editorGutterRef}
+              className="file-editor-gutter"
+              style={{
+                flexShrink: 0,
+                overflow: "hidden",
+                padding: "12px 0",
+                textAlign: "right",
+                color: "var(--text-dim)",
+                background: "var(--bg-panel)",
+                borderRight: "1px solid var(--border)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                fontVariantNumeric: "tabular-nums",
+                lineHeight: "20.8px",
+                userSelect: "none",
+                width: 48,
+              }}
+            >
+              {(editorText ?? "").split("\n").map((_line, lineIndex) => (
+                <div key={`editor-line-${lineIndex}`} style={{ paddingRight: 10 }}>{lineIndex + 1}</div>
+              ))}
+            </div>
+            <textarea
+              ref={editorRef}
+              className="file-editor-textarea"
+              value={editorText ?? ""}
+              onChange={(event) => updateEditorText(event.target.value)}
+              onScroll={(event) => {
+                if (editorGutterRef.current) {
+                  editorGutterRef.current.scrollTop = event.currentTarget.scrollTop;
+                }
+              }}
+              spellCheck={false}
+              wrap="off"
+              aria-label={getRelativeFilePath(filePath, cwd)}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: 0,
+                outline: "none",
+                resize: "none",
+                padding: "12px 16px",
+                background: "var(--bg)",
+                color: "var(--text)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                lineHeight: "20.8px",
+                whiteSpace: "pre",
+                overflow: "auto",
+                tabSize: 4,
+              }}
+            />
+          </div>
+        ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

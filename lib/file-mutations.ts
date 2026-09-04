@@ -16,12 +16,15 @@ export type FileMutation =
   | { type: "create-file" | "create-directory"; directory: string; name: string }
   | { type: "rename"; sourcePath: string; name: string }
   | { type: "move"; sourcePath: string; destinationDirectory: string }
-  | { type: "delete"; sourcePath: string };
+  | { type: "delete"; sourcePath: string }
+  | { type: "write"; sourcePath: string; content: string; baseMtimeMs: number | null };
 
 export type FileMutationResult = {
   sourcePath: string;
   destinationPath?: string;
   deleted: boolean;
+  mtimeMs?: number;
+  size?: number;
 };
 
 function resolverFor(...paths: string[]): typeof path {
@@ -165,6 +168,22 @@ function executeMutation(
       fs.mkdirSync(destinationPath);
     }
     return { sourcePath: destinationPath, destinationPath, deleted: false };
+  }
+
+  if (mutation.type === "write") {
+    // 404 for normal missing files; 403 before any leaf probe when an
+    // intermediate symlink escapes the allowed roots.
+    assertExistingAllowed(mutation.sourcePath, allowedRoots);
+    const stat = fs.statSync(mutation.sourcePath);
+    if (!stat.isFile()) {
+      throw new FileMutationError(400, "Target is not a file");
+    }
+    if (mutation.baseMtimeMs !== null && stat.mtimeMs !== mutation.baseMtimeMs) {
+      throw new FileMutationError(409, "File changed on disk since it was read");
+    }
+    fs.writeFileSync(mutation.sourcePath, mutation.content, "utf-8");
+    const nextStat = fs.statSync(mutation.sourcePath);
+    return { sourcePath: mutation.sourcePath, deleted: false, mtimeMs: nextStat.mtimeMs, size: nextStat.size };
   }
 
   if (mutation.type === "delete") {

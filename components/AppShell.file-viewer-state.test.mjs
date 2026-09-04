@@ -12,6 +12,13 @@ function fileContentBlock() {
   return source.slice(start, end);
 }
 
+test("AppShell protects persisted file drafts across inactive tabs", () => {
+  assert.match(source, /const hasPersistedFileDraft = fileTabs\.some\(\s*\(tab\) => tab\.viewerState\?\.draft !== null && tab\.viewerState\?\.draft !== undefined,\s*\);/);
+  assert.match(source, /if \(!hasPersistedFileDraft\) return;/);
+  assert.match(source, /window\.addEventListener\("beforeunload", handleBeforeUnload\);/);
+  assert.match(source, /\}, \[hasPersistedFileDraft\]\);/);
+});
+
 test("only the active file tab mounts a FileViewer", () => {
   const block = fileContentBlock();
   assert.match(block, /activeFileTab\?\.filePath \? \(/);

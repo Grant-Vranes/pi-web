@@ -47,7 +47,7 @@ const IGNORED_SUFFIXES = [".pyc"];
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
-const FILE_MUTATION_TYPES = ["create-file", "create-directory", "rename", "move", "delete"] as const;
+const FILE_MUTATION_TYPES = ["create-file", "create-directory", "rename", "move", "delete", "write"] as const;
 type FileMutationType = typeof FILE_MUTATION_TYPES[number];
 const FILE_MUTATION_TYPE_SET = new Set<string>(FILE_MUTATION_TYPES);
 const FILE_UPLOAD_TYPES = ["upload", "upload-check"] as const;
@@ -55,6 +55,9 @@ const FILE_POST_REQUEST_TYPE_SET = new Set<string>([
   ...FILE_MUTATION_TYPES,
   ...FILE_UPLOAD_TYPES,
 ]);
+// Text writes are bounded by the 256KB read limit; 2MB of JSON body leaves
+// generous room for JSON escaping and multibyte characters.
+const MAX_WRITE_BODY_CHARS = 2 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
@@ -169,6 +172,15 @@ function parseMutation(
     }
     return { type, sourcePath: filePath, destinationDirectory: input.destinationDirectory };
   }
+  if (type === "write") {
+    if (typeof input.content !== "string") {
+      throw new FileMutationError(400, "content must be a string");
+    }
+    if (input.baseMtimeMs !== null && typeof input.baseMtimeMs !== "number") {
+      throw new FileMutationError(400, "baseMtimeMs must be a number or null");
+    }
+    return { type, sourcePath: filePath, content: input.content, baseMtimeMs: input.baseMtimeMs };
+  }
   return { type, sourcePath: filePath };
 }
 
@@ -188,7 +200,20 @@ export async function POST(
     }
     const mutationType = parseFileMutationType(type);
     if (mutationType) {
-      const body = await request.json().catch(() => null);
+      let body: unknown = null;
+      if (mutationType === "write") {
+        const raw = await request.text();
+        if (raw.length > MAX_WRITE_BODY_CHARS) {
+          return NextResponse.json({ error: "File content must be 2MB or less" }, { status: 413 });
+        }
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          body = null;
+        }
+      } else {
+        body = await request.json().catch(() => null);
+      }
       const mutation = parseMutation(mutationType, filePathFromSegments(segments), body);
       const allowedRoots = await getAllowedFileRoots();
       const result = mutateFile(mutation, allowedRoots);
@@ -523,7 +548,7 @@ export async function GET(
       }
       const content = fs.readFileSync(filePath, "utf-8");
       const language = getLanguage(filePath);
-      return NextResponse.json({ content, language, size: stat.size });
+      return NextResponse.json({ content, language, size: stat.size, mtimeMs: stat.mtimeMs });
     }
 
     if (type === "download") {
