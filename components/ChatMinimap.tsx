@@ -631,173 +631,211 @@ export function ChatMinimap({
     : MINIMAP_PADDING;
   const railHeight = Math.max(1, lastNodeTop - MINIMAP_PADDING);
 
-  return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseEnter={showPreview}
-      onMouseLeave={schedulePreviewHide}
-      onMouseMove={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        setMouseYRatio((event.clientY - rect.top) / rect.height);
-      }}
-      style={{
-        width: MINIMAP_WIDTH,
-        flexShrink: 0,
-        position: "relative",
-        cursor: "pointer",
-        userSelect: "none",
-        borderLeft: "1px solid var(--border)",
-        background: "var(--bg-panel)",
-        overflow: "visible",
-      }}
-    >
-      <button
-        type="button"
-        className={styles.railPinButton}
-        aria-pressed={isPinned}
-        aria-label={isPinned ? "取消固定时间线" : "固定时间线"}
-        title={isPinned ? "取消固定时间线" : "固定时间线"}
-        onMouseDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          const nextPinned = !isPinned;
-          setIsPinned(nextPinned);
-          if (nextPinned) setMinimapHovered(true);
-          try {
-            window.localStorage.setItem(MINIMAP_PINNED_STORAGE_KEY, nextPinned ? "1" : "0");
-          } catch {
-            // ignore storage write errors
-          }
-        }}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M15.2 3.8c-1.8 2-4.4 3.1-7.1 3.1H6.8l.2 5.1-1.8 1.8 6.9 6.9 1.8-1.8 5.1.2V16c0-2.7 1.1-5.3 3.1-7.1L15.2 3.8Z" />
-          <path d="m9.3 14.7-5 5" />
-        </svg>
-      </button>
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: MINIMAP_PADDING,
-          height: railHeight,
-          width: 1,
-          background: "var(--border)",
-          transform: "translateX(-50%)",
-          zIndex: 0,
-        }}
-      />
-
-      {positionedNodes.map((node) => {
-        const isNearest = minimapHovered && nearestNode?.index === node.index;
-        const isActive = activeIndex === node.index;
-
+  const previewBody = allNodes.length > 0 && (
+    <>
+      {allNodes.map((node) => {
+        const isLocated = nearestNodeIndex === node.index;
         return (
           <div
             key={node.index}
-            data-minimap-node-index={node.index}
-            data-minimap-node-active={isActive ? "" : undefined}
-            style={{
-              position: "absolute",
-              top: `${node.topRatio * 100}%`,
-              transform: "translateY(-50%)",
-              left: 0,
-              right: 0,
-              height: Math.max(1, nodeGap),
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              pointerEvents: "none",
-              zIndex: 2,
+            ref={(element) => {
+              if (element) previewItemRefs.current.set(node.index, element);
+              else previewItemRefs.current.delete(node.index);
             }}
+            className={styles.turn}
+            data-minimap-preview-index={node.index}
+            data-located={isLocated ? "true" : undefined}
           >
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 2,
-                background: isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)",
-                border: `1.5px solid ${isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)"}`,
-                boxShadow: isActive ? "0 0 0 2px var(--bg-panel)" : "none",
-                transition: "transform 0.1s, background 0.1s",
-                transform: isNearest ? "scale(1.25)" : "scale(1)",
-              }}
-            />
+            <span className={styles.number} aria-hidden="true">
+              {String(node.index + 1).padStart(2, "0")}
+            </span>
+            <div className={styles.content}>
+              <button
+                type="button"
+                className={styles.user}
+                data-minimap-preview-user={node.index}
+                onClick={() => {
+                  scrollToNode(node, "smooth");
+                }}
+              >
+                <span className={styles.userText}>
+                  {getUserPreview(node.targetTurn.userMessage)}
+                </span>
+              </button>
+
+              {node.targetTurn.assistantPreviews.map((assistant, assistantIndex) => (
+                <div
+                  key={assistantIndex}
+                  className={styles.assistant}
+                >
+                  <button
+                    type="button"
+                    className={styles.assistantJump}
+                    data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
+                    onClick={() => scrollToAssistant(node, assistantIndex)}
+                    aria-label="Locate assistant message"
+                    title="Locate assistant message"
+                  >
+                    A
+                  </button>
+                  <AssistantOutline
+                    markdown={assistant.markdown}
+                    onAnswerClick={() => scrollToAssistant(node, assistantIndex)}
+                    onHeadingClick={(headingIndex) => (
+                      scrollToHeading(node, assistantIndex, headingIndex)
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}
+    </>
+  );
 
-      {isPreviewOpen && allNodes.length > 0 && (
+  return (
+    <>
+      {isPinned && isPreviewOpen && previewBody && (
         <div
           ref={previewBoxRef}
-          className={styles.preview}
+          className={styles.previewInline}
           data-minimap-preview-box=""
+          data-pinned=""
           onMouseEnter={showPreview}
           onMouseDown={(event) => event.stopPropagation()}
           onMouseMove={(event) => event.stopPropagation()}
         >
-          {allNodes.map((node) => {
-            const isLocated = nearestNodeIndex === node.index;
+          {previewBody}
+        </div>
+      )}
+      <div
+        style={{
+          width: MINIMAP_WIDTH,
+          flexShrink: 0,
+          position: "relative",
+          cursor: "pointer",
+          userSelect: "none",
+          borderLeft: "1px solid var(--border)",
+          background: "var(--bg-panel)",
+          overflow: "visible",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          className={styles.railHeader}
+          onMouseEnter={showPreview}
+          onMouseLeave={schedulePreviewHide}
+        >
+          <button
+            type="button"
+            className={styles.railPinButton}
+            aria-pressed={isPinned}
+            aria-label={isPinned ? "取消固定时间线" : "固定时间线"}
+            title={isPinned ? "取消固定时间线" : "固定时间线"}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              const nextPinned = !isPinned;
+              setIsPinned(nextPinned);
+              if (nextPinned) setMinimapHovered(true);
+              try {
+                window.localStorage.setItem(MINIMAP_PINNED_STORAGE_KEY, nextPinned ? "1" : "0");
+              } catch {
+                // ignore storage write errors
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15.2 3.8c-1.8 2-4.4 3.1-7.1 3.1H6.8l.2 5.1-1.8 1.8 6.9 6.9 1.8-1.8 5.1.2V16c0-2.7 1.1-5.3 3.1-7.1L15.2 3.8Z" />
+              <path d="m9.3 14.7-5 5" />
+            </svg>
+          </button>
+        </div>
+        <div
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          onMouseEnter={showPreview}
+          onMouseLeave={schedulePreviewHide}
+          onMouseMove={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMouseYRatio((event.clientY - rect.top) / rect.height);
+          }}
+          style={{
+            position: "relative",
+            flex: 1,
+            minHeight: 0,
+            overflow: "visible",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: MINIMAP_PADDING,
+              height: railHeight,
+              width: 1,
+              background: "var(--border)",
+              transform: "translateX(-50%)",
+              zIndex: 0,
+            }}
+          />
+
+          {positionedNodes.map((node) => {
+            const isNearest = minimapHovered && nearestNode?.index === node.index;
+            const isActive = activeIndex === node.index;
+
             return (
               <div
                 key={node.index}
-                ref={(element) => {
-                  if (element) previewItemRefs.current.set(node.index, element);
-                  else previewItemRefs.current.delete(node.index);
+                data-minimap-node-index={node.index}
+                data-minimap-node-active={isActive ? "" : undefined}
+                style={{
+                  position: "absolute",
+                  top: `${node.topRatio * 100}%`,
+                  transform: "translateY(-50%)",
+                  left: 0,
+                  right: 0,
+                  height: Math.max(1, nodeGap),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                  zIndex: 2,
                 }}
-                className={styles.turn}
-                data-minimap-preview-index={node.index}
-                data-located={isLocated ? "true" : undefined}
               >
-                <span className={styles.number} aria-hidden="true">
-                  {String(node.index + 1).padStart(2, "0")}
-                </span>
-                <div className={styles.content}>
-                  <button
-                    type="button"
-                    className={styles.user}
-                    data-minimap-preview-user={node.index}
-                    onClick={() => {
-                      scrollToNode(node, "smooth");
-                    }}
-                  >
-                    <span className={styles.userText}>
-                      {getUserPreview(node.targetTurn.userMessage)}
-                    </span>
-                  </button>
-
-                  {node.targetTurn.assistantPreviews.map((assistant, assistantIndex) => (
-                    <div
-                      key={assistantIndex}
-                      className={styles.assistant}
-                    >
-                      <button
-                        type="button"
-                        className={styles.assistantJump}
-                        data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
-                        onClick={() => scrollToAssistant(node, assistantIndex)}
-                        aria-label="Locate assistant message"
-                        title="Locate assistant message"
-                      >
-                        A
-                      </button>
-                      <AssistantOutline
-                        markdown={assistant.markdown}
-                        onAnswerClick={() => scrollToAssistant(node, assistantIndex)}
-                        onHeadingClick={(headingIndex) => (
-                          scrollToHeading(node, assistantIndex, headingIndex)
-                        )}
-                      />
-                    </div>
-                  ))}
-                </div>
+                <div
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 2,
+                    background: isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)",
+                    border: `1.5px solid ${isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)"}`,
+                    boxShadow: isActive ? "0 0 0 2px var(--bg-panel)" : "none",
+                    transition: "transform 0.1s, background 0.1s",
+                    transform: isNearest ? "scale(1.25)" : "scale(1)",
+                  }}
+                />
               </div>
             );
           })}
         </div>
-      )}
-    </div>
+
+        {!isPinned && isPreviewOpen && previewBody && (
+          <div
+            ref={previewBoxRef}
+            className={styles.preview}
+            data-minimap-preview-box=""
+            onMouseEnter={showPreview}
+            onMouseDown={(event) => event.stopPropagation()}
+            onMouseMove={(event) => event.stopPropagation()}
+          >
+            {previewBody}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

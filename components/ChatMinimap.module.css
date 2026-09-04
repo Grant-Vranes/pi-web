@@ -18,12 +18,41 @@
   user-select: text;
 }
 
-.railPinButton {
-  position: absolute;
-  top: -30px;
-  left: 50%;
-  transform: translateX(-50%);
+/* Pinned preview: rendered inline (in normal flow) between the chat column and
+   the minimap rail so it occupies layout space instead of overlapping the
+   conversation. */
+.previewInline {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  width: 320px;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  background: var(--bg);
+  border-left: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  box-shadow: -10px 0 26px rgba(0, 0, 0, 0.07);
+  pointer-events: auto;
+  cursor: default;
+  user-select: text;
+}
+
+/* Header bar at the top of the minimap rail that hosts the pin toggle. */
+.railHeader {
+  position: relative;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.railPinButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
