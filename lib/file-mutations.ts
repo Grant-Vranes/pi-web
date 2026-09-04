@@ -171,17 +171,10 @@ function executeMutation(
   }
 
   if (mutation.type === "write") {
-    if (!isFilePathAllowed(mutation.sourcePath, allowedRoots)) {
-      throw new FileMutationError(403, "Access denied");
-    }
-    // statSync before the canonical check so a missing file maps to 404
-    // (via the ENOENT mapping in mutateFile) instead of a misleading 403.
+    // 404 for normal missing files; 403 before any leaf probe when an
+    // intermediate symlink escapes the allowed roots.
+    assertExistingAllowed(mutation.sourcePath, allowedRoots);
     const stat = fs.statSync(mutation.sourcePath);
-    // Resolves symlinks: an in-root link pointing outside the roots is 403,
-    // so writes always land on a canonical in-root regular file.
-    if (!isExistingFilePathAllowed(mutation.sourcePath, allowedRoots)) {
-      throw new FileMutationError(403, "Access denied");
-    }
     if (!stat.isFile()) {
       throw new FileMutationError(400, "Target is not a file");
     }
