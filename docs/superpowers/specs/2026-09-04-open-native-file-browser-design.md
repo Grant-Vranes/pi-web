@@ -37,11 +37,15 @@ Validation order (all failures return JSON `{ error: string }`):
 
 1. `isApiRequestAllowed(request)` → 403 "Untrusted API request"
 2. `path` is a non-empty string → 400 "path is required"
-3. Path exists (checked with `fs.existsSync`) → 400 "Path does not exist: <path>"
-4. Allowed-roots gate: `getAllowedFileRoots()` then
-   `isFilePathAllowed(path, roots) && isExistingFilePathAllowed(path, roots)`
+3. Allowed-roots gate, lexical pass (BEFORE any filesystem access so the
+   400 below cannot probe paths outside the boundary):
+   `getAllowedFileRoots()` then `isFilePathAllowed(path, roots)`
    → 403 "Access denied"
-5. `fs.statSync(path).isDirectory()` decides file vs directory behaviour.
+4. Path exists (checked with `fs.existsSync`) → 400 "Path does not exist: <path>"
+5. Allowed-roots gate, realpath pass: `isExistingFilePathAllowed(path, roots)`
+   → 403 "Access denied" (rejects symlink escapes; runs after the existence
+   check because realpath requires an existing path)
+6. `fs.statSync(path).isDirectory()` decides file vs directory behaviour.
 
 Platform-specific open (child_process.spawn, `{ detached: true, stdio: "ignore" }`,
 `child.unref()`, resolve after ~250 ms unless an early `error` event fires — the
