@@ -16,12 +16,15 @@ export type FileMutation =
   | { type: "create-file" | "create-directory"; directory: string; name: string }
   | { type: "rename"; sourcePath: string; name: string }
   | { type: "move"; sourcePath: string; destinationDirectory: string }
-  | { type: "delete"; sourcePath: string };
+  | { type: "delete"; sourcePath: string }
+  | { type: "write"; sourcePath: string; content: string; baseMtimeMs: number | null };
 
 export type FileMutationResult = {
   sourcePath: string;
   destinationPath?: string;
   deleted: boolean;
+  mtimeMs?: number;
+  size?: number;
 };
 
 function resolverFor(...paths: string[]): typeof path {
@@ -165,6 +168,29 @@ function executeMutation(
       fs.mkdirSync(destinationPath);
     }
     return { sourcePath: destinationPath, destinationPath, deleted: false };
+  }
+
+  if (mutation.type === "write") {
+    if (!isFilePathAllowed(mutation.sourcePath, allowedRoots)) {
+      throw new FileMutationError(403, "Access denied");
+    }
+    // statSync before the canonical check so a missing file maps to 404
+    // (via the ENOENT mapping in mutateFile) instead of a misleading 403.
+    const stat = fs.statSync(mutation.sourcePath);
+    // Resolves symlinks: an in-root link pointing outside the roots is 403,
+    // so writes always land on a canonical in-root regular file.
+    if (!isExistingFilePathAllowed(mutation.sourcePath, allowedRoots)) {
+      throw new FileMutationError(403, "Access denied");
+    }
+    if (!stat.isFile()) {
+      throw new FileMutationError(400, "Target is not a file");
+    }
+    if (mutation.baseMtimeMs !== null && stat.mtimeMs !== mutation.baseMtimeMs) {
+      throw new FileMutationError(409, "File changed on disk since it was read");
+    }
+    fs.writeFileSync(mutation.sourcePath, mutation.content, "utf-8");
+    const nextStat = fs.statSync(mutation.sourcePath);
+    return { sourcePath: mutation.sourcePath, deleted: false, mtimeMs: nextStat.mtimeMs, size: nextStat.size };
   }
 
   if (mutation.type === "delete") {
