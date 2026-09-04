@@ -24,6 +24,7 @@ import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDi
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
+import { findMatches, replaceAll, replaceOne } from "@/lib/file-search";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -1142,6 +1143,73 @@ function TextFileViewer({
     }
   }, [editorText, filePath, saving, sourceSessionId, t]);
 
+  const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
+  const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
+  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [replaceVisible, setReplaceVisible] = useState(false);
+  const [replacement, setReplacement] = useState("");
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const searchText = isEditing ? (editorText ?? "") : (data?.content ?? "");
+
+  const searchMatches = useMemo(
+    () => (searchOpen ? findMatches(searchText, searchQuery, searchCaseSensitive) : []),
+    [searchCaseSensitive, searchOpen, searchQuery, searchText],
+  );
+  const clampedActiveIndex = searchMatches.length === 0
+    ? 0
+    : Math.min(activeMatchIndex, searchMatches.length - 1);
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    setActiveMatchIndex(0);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setReplaceVisible(false);
+  }, []);
+
+  const goToMatch = useCallback((index: number) => {
+    if (searchMatches.length === 0) return;
+    const nextIndex = ((index % searchMatches.length) + searchMatches.length) % searchMatches.length;
+    setActiveMatchIndex(nextIndex);
+    const match = searchMatches[nextIndex];
+    if (isEditing) {
+      const editor = editorRef.current;
+      if (editor) {
+        editor.focus();
+        editor.setSelectionRange(match.start, match.end);
+        // Center the match line; wrapped lines make this an approximation.
+        const EDITOR_LINE_HEIGHT = 20.8;
+        const targetTop = (match.line - 1) * EDITOR_LINE_HEIGHT - editor.clientHeight / 2;
+        editor.scrollTop = Math.max(0, targetTop);
+      }
+    } else {
+      const line = contentRef.current?.querySelector<HTMLElement>(
+        `.file-source-line[data-line-number="${match.line}"]`,
+      );
+      line?.scrollIntoView({ block: "center" });
+    }
+  }, [isEditing, searchMatches]);
+
+  const replaceCurrentMatch = useCallback(() => {
+    const match = searchMatches[clampedActiveIndex];
+    if (!match || editorText === null) return;
+    updateEditorText(replaceOne(editorText, match, replacement));
+  }, [clampedActiveIndex, editorText, replacement, searchMatches, updateEditorText]);
+
+  const replaceAllMatches = useCallback(() => {
+    if (editorText === null || searchMatches.length === 0) return;
+    const result = replaceAll(editorText, searchMatches, replacement);
+    updateEditorText(result.content);
+  }, [editorText, replacement, searchMatches, updateEditorText]);
+
   useEffect(() => {
     const nextState: FileViewerState = {
       displayMode: requestedInitialDisplayMode,
@@ -1277,9 +1345,6 @@ function TextFileViewer({
     }
   }, [data?.language, updateDisplayMode]);
 
-  const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
-  const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
-
   useEffect(() => {
     if (gitDiffResolved && !hasGitDiff && displayMode === "diff") updateDisplayMode("source");
   }, [displayMode, gitDiffResolved, hasGitDiff, updateDisplayMode]);
@@ -1373,6 +1438,69 @@ function TextFileViewer({
   }, [dirty]);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.repeat
+        || event.key.toLowerCase() !== "f"
+        || (!event.metaKey && !event.ctrlKey)
+        || event.altKey
+        || event.shiftKey
+      ) return;
+      const target = event.target;
+      const insideTextField = target instanceof Element
+        && target.closest("input, textarea, [contenteditable='true']");
+      const insideOwnEditor = target instanceof Node
+        && editorRef.current !== null
+        && editorRef.current.contains(target);
+      if (insideTextField && !insideOwnEditor) return;
+      if (!isEditing && effectiveDisplayMode !== "source") return;
+      event.preventDefault();
+      openSearch();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [effectiveDisplayMode, isEditing, openSearch]);
+
+  useEffect(() => {
+    if (!isEditing || searchOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target;
+      const insideTextField = target instanceof Element
+        && target.closest("input, textarea, [contenteditable='true']");
+      const insideOwnEditor = target instanceof Node
+        && editorRef.current !== null
+        && editorRef.current.contains(target);
+      if (insideTextField && !insideOwnEditor) return;
+      exitEditMode();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [exitEditMode, isEditing, searchOpen]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    const root = contentRef.current;
+    if (!root) return;
+    const lines = root.querySelectorAll<HTMLElement>(".file-source-line");
+    for (const line of lines) {
+      line.classList.remove("file-source-search-hit", "file-source-search-hit-active");
+    }
+    if (!searchOpen || searchMatches.length === 0) return;
+    for (const match of searchMatches) {
+      root.querySelector<HTMLElement>(`.file-source-line[data-line-number="${match.line}"]`)
+        ?.classList.add("file-source-search-hit");
+    }
+    root.querySelector<HTMLElement>(
+      `.file-source-line[data-line-number="${searchMatches[clampedActiveIndex].line}"]`,
+    )?.classList.add("file-source-search-hit-active");
+  }, [clampedActiveIndex, data?.content, isEditing, searchMatches, searchOpen, wrapLines]);
+
+  useEffect(() => {
+    setActiveMatchIndex(0);
+  }, [searchCaseSensitive, searchQuery]);
+
+  useEffect(() => {
     if (!scrollRestorePendingRef.current || loading) return;
     if (error && !isDeletedDiff) return;
     if (requestedInitialDisplayMode === "diff" && !gitDiffResolved) return;
@@ -1421,7 +1549,6 @@ function TextFileViewer({
   const markdownDirectory = getFileDirectory(filePath);
   const lines = content.split("\n");
   const useLightweightSource = lines.length > SOURCE_HIGHLIGHT_MAX_LINES;
-  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
     : [
@@ -1533,6 +1660,25 @@ function TextFileViewer({
                 {t("i18n.editFile")}
               </button>
             ))}
+            {!isDeletedDiff && (isEditing || effectiveDisplayMode === "source") && (
+              <button
+                type="button"
+                onClick={() => (searchOpen ? closeSearch() : openSearch())}
+                aria-pressed={searchOpen}
+                className="file-viewer-icon-button"
+                title={t("i18n.searchInFile")}
+                aria-label={t("i18n.searchInFile")}
+                style={{
+                  background: searchOpen ? "var(--bg-selected)" : "transparent",
+                  color: searchOpen ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.5" y2="16.5" />
+                </svg>
+              </button>
+            )}
             {!isEditing && (onAtMention || onMentionLines) && (
               <button
                 type="button"
@@ -1599,6 +1745,150 @@ function TextFileViewer({
         <div className="file-viewer-conflict-banner" role="alert">
           <span style={{ flex: 1 }}>{saveError}</span>
           <button type="button" onClick={() => setSaveError(null)}>{t("i18n.cancel")}</button>
+        </div>
+      )}
+      {searchOpen && (
+        <div
+          className="file-search-bar"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            padding: "6px 12px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              ref={searchInputRef}
+              className="file-search-input"
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeSearch();
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  goToMatch(clampedActiveIndex + (event.shiftKey ? -1 : 1));
+                }
+              }}
+              placeholder={t("i18n.searchInFile")}
+              aria-label={t("i18n.searchInFile")}
+              style={{ flex: 1 }}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => setSearchCaseSensitive((current) => !current)}
+              aria-pressed={searchCaseSensitive}
+              className="file-viewer-mode-button"
+              title={t("i18n.matchCase")}
+              aria-label={t("i18n.matchCase")}
+              style={{
+                fontSize: 11,
+                background: searchCaseSensitive ? "var(--bg-selected)" : "transparent",
+                color: searchCaseSensitive ? "var(--text)" : "var(--text-muted)",
+              }}
+            >
+              Aa
+            </button>
+            <span
+              className="file-search-count"
+              style={{ minWidth: 64, textAlign: "center", fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+            >
+              {searchQuery === ""
+                ? ""
+                : searchMatches.length === 0
+                  ? t("i18n.noMatches")
+                  : `${clampedActiveIndex + 1}/${searchMatches.length}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToMatch(clampedActiveIndex - 1)}
+              disabled={searchMatches.length === 0}
+              className="file-viewer-icon-button"
+              title={t("i18n.previousMatch")}
+              aria-label={t("i18n.previousMatch")}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="18 15 12 9 6 15" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => goToMatch(clampedActiveIndex + 1)}
+              disabled={searchMatches.length === 0}
+              className="file-viewer-icon-button"
+              title={t("i18n.nextMatch")}
+              aria-label={t("i18n.nextMatch")}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {isEditing && (
+              <button
+                type="button"
+                onClick={() => setReplaceVisible((current) => !current)}
+                aria-pressed={replaceVisible}
+                className="file-viewer-mode-button"
+                title={t("i18n.showReplace")}
+                aria-label={t("i18n.showReplace")}
+                style={{
+                  background: replaceVisible ? "var(--bg-selected)" : "transparent",
+                  color: replaceVisible ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                {t("i18n.replace")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={closeSearch}
+              className="file-viewer-icon-button"
+              title={t("i18n.closeSearch")}
+              aria-label={t("i18n.closeSearch")}
+            >
+              <svg width="13" height="13" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <line x1="2" y1="2" x2="8" y2="8" />
+                <line x1="8" y1="2" x2="2" y2="8" />
+              </svg>
+            </button>
+          </div>
+          {isEditing && replaceVisible && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                className="file-search-input"
+                type="text"
+                value={replacement}
+                onChange={(event) => setReplacement(event.target.value)}
+                placeholder={t("i18n.replaceWith")}
+                aria-label={t("i18n.replaceWith")}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={replaceCurrentMatch}
+                disabled={searchMatches.length === 0}
+                className="file-viewer-mode-button"
+              >
+                {t("i18n.replace")}
+              </button>
+              <button
+                type="button"
+                onClick={replaceAllMatches}
+                disabled={searchMatches.length === 0}
+                className="file-viewer-mode-button"
+              >
+                {t("i18n.replaceAll")}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

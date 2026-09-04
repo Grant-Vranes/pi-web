@@ -2142,3 +2142,30 @@ span.token.table {
     font-size: 16px !important;
   }
 }
+
+/* File viewer: search bar */
+.file-search-input {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  min-width: 0;
+}
+
+.file-search-input:focus {
+  border-color: var(--accent);
+}
+
+.file-source-search-hit {
+  background: rgba(245, 158, 11, 0.28);
+}
+
+.file-source-search-hit-active {
+  background: rgba(245, 158, 11, 0.5);
+  outline: 1px solid #f59e0b;
+}
