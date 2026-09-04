@@ -86,7 +86,7 @@ test("every explicit diff activation resets the mode and increments the revision
   assert.equal(first[0].viewerRevision, 1);
   assert.deepEqual(first[0].viewerState, {
     displayMode: "diff",
-    wrapLines: false,
+    wrapLines: true,
     scrollTop: 0,
     scrollLeft: 0,
   });
@@ -110,7 +110,7 @@ test("explicit diff activation preserves draft and base mtime while resetting sc
 
   assert.deepEqual(next.viewerState, {
     displayMode: "diff",
-    wrapLines: false,
+    wrapLines: true,
     scrollTop: 0,
     scrollLeft: 0,
     draft: "edited text",

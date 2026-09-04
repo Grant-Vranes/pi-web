@@ -48,7 +48,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       const nextViewerState: FileViewerState = {
         ...(previousState ?? {}),
         displayMode: input.modeHint,
-        wrapLines: false,
+        wrapLines: previousState?.wrapLines ?? false,
         scrollTop: 0,
         scrollLeft: 0,
       };
