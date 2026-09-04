@@ -12,6 +12,7 @@ import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { displayCwd } from "@/lib/cwd-display";
 import { getFileName } from "@/lib/file-paths";
+import { openInFileBrowser } from "@/lib/file-browser";
 import type { WorktreeEntry, WorktreeState } from "@/lib/worktree-types";
 import type { RunningRpcSessionDetail } from "@/lib/rpc-manager";
 import { calendarDaysAgo, formatSessionTimestamp, formatDayLabel } from "@/lib/i18n/format";
@@ -499,6 +500,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const [fileBrowserOpening, setFileBrowserOpening] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [collapsedDayGroups, setCollapsedDayGroups] = useState<Set<string>>(() => loadCollapsedDayGroups());
@@ -962,6 +964,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
+
+  // Open the OS native file browser at the explorer's current root. Disabled
+  // briefly while a request is in flight so the button never looks dead
+  // (same pattern as terminalOpening).
+  const handleOpenInFileBrowser = useCallback(async () => {
+    const targetCwd = selectedCwd ?? selectedCwdProp;
+    if (!targetCwd || fileBrowserOpening) return;
+    setFileBrowserOpening(true);
+    const result = await openInFileBrowser(targetCwd);
+    if (!result.ok) {
+      window.alert(`${t("files.openInFileBrowserFailed")}: ${result.error ?? ""}`);
+    }
+    setTimeout(() => setFileBrowserOpening(false), 600);
+  }, [selectedCwd, selectedCwdProp, fileBrowserOpening, t]);
 
   const recentProjects = getRecentProjects(allSessions);
   const showProjectFilter = recentProjects.length > 8;
@@ -1603,6 +1619,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <path d="m17 8-5-5-5 5" />
                   <path d="M12 3v12" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {explorerOpen && (
+              <ToolbarIconButton
+                onClick={() => void handleOpenInFileBrowser()}
+                disabled={fileBrowserOpening}
+                title={t("sidebar.openNativeFileBrowser")}
+                color="var(--text-dim)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </ToolbarIconButton>
             )}
