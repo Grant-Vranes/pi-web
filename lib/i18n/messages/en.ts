@@ -302,6 +302,8 @@ export const enLocale: LocalePlugin = {
     "files.operationFailed": "File operation failed",
     "files.dismissOperationError": "Dismiss file operation error",
     "files.dropToMove": "Move to {name}",
+    "files.copy": "Copy",
+    "files.cut": "Cut",
     "chat.loadingSession": "Loading session...",
     "chat.runningTool": "Running tool...",
     "chat.generatingToolInput": "Generating parameters...",

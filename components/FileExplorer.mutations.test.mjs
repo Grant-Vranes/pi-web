@@ -6,7 +6,7 @@ const source = await readFile(new URL("./FileExplorer.tsx", import.meta.url), "u
 
 test("explorer nodes expose a native contextual mutation menu", () => {
   assert.match(source, /onContextMenu=\{\(event\) => onContextMenu\?\.\(node, event\)\}/);
-  assert.match(source, /type: "create-file" \| "create-directory" \| "rename" \| "move" \| "delete"/);
+  assert.match(source, /type: "create-file" \| "create-directory" \| "rename" \| "move" \| "copy" \| "delete"/);
   assert.match(source, /event\.preventDefault\(\)/);
   assert.match(source, /role="menu"/);
 });
@@ -32,9 +32,30 @@ test("mutation errors remain available inside the active name dialog", () => {
 
 test("context menu actions are disabled during mutations", () => {
   const menuSection = source.slice(source.indexOf("{contextMenu && ("), source.indexOf("{pendingMutation && ("));
-  // The shared create-file/create-directory button plus rename and delete
-  // cover the four rendered menu actions (move is drag-only now).
-  assert.equal((menuSection.match(/disabled=\{mutationBusy\}/g) ?? []).length, 3);
+  // Create-file/create-directory (2), copy, cut, rename and delete use the
+  // shared busy guard; paste adds its own clipboard-null guard.
+  assert.equal((menuSection.match(/disabled=\{mutationBusy\}/g) ?? []).length, 6);
+});
+
+test("clipboard holds a single entry set from the context menu", () => {
+  assert.match(source, /useState<\{ path: string; mode: "copy" \| "cut" \} \| null>\(null\)/);
+  assert.match(source, /setLastContextEntry\(\{ path: target\.fullPath, isDir: target\.isDir \}\)/);
+  assert.match(source, /setClipboard\(\{ path: contextMenu\.target\.fullPath, mode: "copy" \}\)/);
+  assert.match(source, /setClipboard\(\{ path: contextMenu\.target\.fullPath, mode: "cut" \}\)/);
+});
+
+test("entries held as cut render dimmed", () => {
+  assert.match(source, /const isCut = cutPath !== null && cutPath !== undefined && sameFilePath\(cutPath, node\.fullPath\)/);
+  assert.match(source, /opacity: isCut \? 0\.5 : 1/);
+  assert.match(source, /cutPath=\{cutPath\}/);
+});
+
+test("copy and cut menu labels exist in every locale", async () => {
+  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+    const messages = await readFile(new URL(`../lib/i18n/messages/${locale}.ts`, import.meta.url), "utf8");
+    assert.match(messages, /"files\.copy":/);
+    assert.match(messages, /"files\.cut":/);
+  }
 });
 
 test("name dialog handles Escape from the form and associates its label", () => {

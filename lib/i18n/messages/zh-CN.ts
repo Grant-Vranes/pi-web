@@ -302,6 +302,8 @@ export const zhCNLocale: LocalePlugin = {
     "files.operationFailed": "文件操作失败",
     "files.dismissOperationError": "关闭文件操作错误",
     "files.dropToMove": "移动到 {name}",
+    "files.copy": "复制",
+    "files.cut": "剪切",
     "chat.loadingSession": "正在加载会话...",
     "chat.runningTool": "正在运行工具...",
     "chat.generatingToolInput": "正在生成参数...",
