@@ -80,12 +80,15 @@ function removeExistingForOverwrite(target: string, allowedRoots: Set<string>): 
   fs.rmSync(target, { recursive: stat.isDirectory(), force: false });
 }
 
-function stagingPathFor(directory: string, name: string): string {
-  const resolver = resolverFor(directory, name);
-  return resolver.join(
-    directory,
-    `${name}.pi-staging-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  );
+function createStagingContainer(directory: string, allowedRoots: Set<string>): string {
+  // Exclusive mkdtemp container beside the destination for staged overwrite
+  // copies: the caller copies the source into it while the destination is
+  // still intact, then swaps the payload over the destination.
+  const prefix = resolverFor(directory).join(directory, ".pi-staging-");
+  if (!isFilePathAllowed(prefix, allowedRoots)) {
+    throw new FileMutationError(403, "Destination is outside the allowed roots");
+  }
+  return fs.mkdtempSync(prefix);
 }
 
 function nearestExistingAncestor(target: string, allowedRoots: Set<string>): string | null {
@@ -306,7 +309,9 @@ function executeMutation(
       throw new FileMutationError(409, "A file or directory with this name already exists");
     }
     if (conflict === "overwrite") {
-      removeExistingForOverwrite(destinationPath, allowedRoots);
+      // Removal is deferred: copy branches stage the replacement while the
+      // destination is still intact; the move branch removes just before its
+      // rename.
       removedExisting = true;
     } else {
       destinationPath = resolverFor(destinationDirectory).join(
@@ -339,29 +344,46 @@ function executeMutation(
     const sourceStat = fs.lstatSync(mutation.sourcePath);
     if (sourceStat.isSymbolicLink()) {
       // A directly selected symlink is copied as a link, never dereferenced.
-      // The overwrite path already removed the destination, so the link name
-      // is vacant; a racer creates it first and symlinkSync fails with EEXIST
-      // (mapped to 409 by mutateFile).
-      fs.symlinkSync(fs.readlinkSync(mutation.sourcePath), destinationPath);
+      const linkTarget = fs.readlinkSync(mutation.sourcePath);
+      if (removedExisting) {
+        // A link cannot be staged; capture the target first, then remove the
+        // destination and recreate the link. A racer that recreates the name
+        // first makes symlinkSync fail with EEXIST (mapped to 409).
+        removeExistingForOverwrite(destinationPath, allowedRoots);
+      }
+      fs.symlinkSync(linkTarget, destinationPath);
       return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
     }
     if (sourceStat.isDirectory()) {
       if (removedExisting) {
-        // Stage the copy next to the destination, then swap it in, so a failed
-        // copy (permissions, disk space) never leaves the destination
-        // destroyed.
-        const stagingPath = stagingPathFor(destinationDirectory, name);
-        if (!isFilePathAllowed(stagingPath, allowedRoots)) {
-          throw new FileMutationError(403, "Destination is outside the allowed roots");
+        // Stage the copy while the destination is still intact, then swap it
+        // in, so a failed copy (permissions, disk space) never leaves the
+        // destination destroyed.
+        const stagingDir = createStagingContainer(destinationDirectory, allowedRoots);
+        const stagedPath = resolverFor(stagingDir, name).join(stagingDir, name);
+        let destinationRemoved = false;
+        try {
+          fs.cpSync(mutation.sourcePath, stagedPath, {
+            recursive: true,
+            dereference: false,
+            verbatimSymlinks: true,
+            force: false,
+            errorOnExist: true,
+          });
+          removeExistingForOverwrite(destinationPath, allowedRoots);
+          destinationRemoved = true;
+          fs.renameSync(stagedPath, destinationPath);
+        } catch (error) {
+          if (!destinationRemoved) {
+            // Destination intact — drop the staged attempt.
+            fs.rmSync(stagingDir, { recursive: true, force: true });
+          }
+          // Otherwise the destination is already gone and the staged payload
+          // inside stagingDir is the only recovery artifact: the container is
+          // deliberately left in place while the error propagates.
+          throw error;
         }
-        fs.cpSync(mutation.sourcePath, stagingPath, {
-          recursive: true,
-          dereference: false,
-          verbatimSymlinks: true,
-          force: false,
-          errorOnExist: true,
-        });
-        fs.renameSync(stagingPath, destinationPath);
+        fs.rmSync(stagingDir, { recursive: true, force: true });
       } else {
         fs.cpSync(mutation.sourcePath, destinationPath, {
           recursive: true,
@@ -374,14 +396,28 @@ function executeMutation(
       return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
     }
     if (removedExisting) {
-      // Staged file copy: write beside the destination, then swap in, so a
-      // failed copy never leaves the destination destroyed.
-      const stagingPath = stagingPathFor(destinationDirectory, name);
-      if (!isFilePathAllowed(stagingPath, allowedRoots)) {
-        throw new FileMutationError(403, "Destination is outside the allowed roots");
+      // Staged file copy: write into an exclusive container while the
+      // destination is still intact, then swap in, so a failed copy never
+      // leaves the destination destroyed.
+      const stagingDir = createStagingContainer(destinationDirectory, allowedRoots);
+      const stagedPath = resolverFor(stagingDir, name).join(stagingDir, name);
+      let destinationRemoved = false;
+      try {
+        fs.copyFileSync(mutation.sourcePath, stagedPath);
+        removeExistingForOverwrite(destinationPath, allowedRoots);
+        destinationRemoved = true;
+        fs.renameSync(stagedPath, destinationPath);
+      } catch (error) {
+        if (!destinationRemoved) {
+          // Destination intact — drop the staged attempt.
+          fs.rmSync(stagingDir, { recursive: true, force: true });
+        }
+        // Otherwise the destination is already gone and the staged payload
+        // inside stagingDir is the only recovery artifact: the container is
+        // deliberately left in place while the error propagates.
+        throw error;
       }
-      fs.copyFileSync(mutation.sourcePath, stagingPath);
-      fs.renameSync(stagingPath, destinationPath);
+      fs.rmSync(stagingDir, { recursive: true, force: true });
       return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
     }
     if (conflict === "keep-both") {
@@ -409,6 +445,9 @@ function executeMutation(
     return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
   }
 
+  if (removedExisting) {
+    removeExistingForOverwrite(destinationPath, allowedRoots);
+  }
   fs.renameSync(mutation.sourcePath, destinationPath);
   return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
 }
