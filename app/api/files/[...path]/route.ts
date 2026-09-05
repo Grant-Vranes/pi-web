@@ -33,6 +33,7 @@ import {
   FileMutationError,
   mutateFile,
   type FileMutation,
+  type FileMutationConflictMode,
 } from "@/lib/file-mutations";
 import { samePath } from "@/lib/paths";
 
@@ -47,7 +48,7 @@ const IGNORED_SUFFIXES = [".pyc"];
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
-const FILE_MUTATION_TYPES = ["create-file", "create-directory", "rename", "move", "delete", "write"] as const;
+const FILE_MUTATION_TYPES = ["create-file", "create-directory", "rename", "move", "copy", "delete", "write"] as const;
 type FileMutationType = typeof FILE_MUTATION_TYPES[number];
 const FILE_MUTATION_TYPE_SET = new Set<string>(FILE_MUTATION_TYPES);
 const FILE_UPLOAD_TYPES = ["upload", "upload-check"] as const;
@@ -145,6 +146,12 @@ function parseFileMutationType(value: string): FileMutationType | null {
   return FILE_MUTATION_TYPE_SET.has(value) ? (value as FileMutationType) : null;
 }
 
+function parseConflictMode(value: unknown): FileMutationConflictMode {
+  if (value === undefined || value === null) return "error";
+  if (value === "error" || value === "overwrite" || value === "keep-both") return value;
+  throw new FileMutationError(400, "conflict must be one of: error, overwrite, keep-both");
+}
+
 function parseMutation(
   type: FileMutationType,
   filePath: string,
@@ -166,11 +173,16 @@ function parseMutation(
     }
     return { type, sourcePath: filePath, name: input.name };
   }
-  if (type === "move") {
+  if (type === "move" || type === "copy") {
     if (typeof input.destinationDirectory !== "string") {
       throw new FileMutationError(400, "destinationDirectory must be a string");
     }
-    return { type, sourcePath: filePath, destinationDirectory: input.destinationDirectory };
+    return {
+      type,
+      sourcePath: filePath,
+      destinationDirectory: input.destinationDirectory,
+      conflict: parseConflictMode(input.conflict),
+    };
   }
   if (type === "write") {
     if (typeof input.content !== "string") {

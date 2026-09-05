@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./FileExplorer.tsx", import.meta.url), "utf8");
+const source = (await readFile(new URL("./FileExplorer.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 
 test("explorer nodes expose a native contextual mutation menu", () => {
   assert.match(source, /onContextMenu=\{\(event\) => onContextMenu\?\.\(node, event\)\}/);
-  assert.match(source, /type: "create-file" \| "create-directory" \| "rename" \| "move" \| "delete"/);
+  assert.match(source, /type: "create-file" \| "create-directory" \| "rename" \| "move" \| "copy" \| "delete"/);
   assert.match(source, /event\.preventDefault\(\)/);
   assert.match(source, /role="menu"/);
 });
@@ -32,9 +32,30 @@ test("mutation errors remain available inside the active name dialog", () => {
 
 test("context menu actions are disabled during mutations", () => {
   const menuSection = source.slice(source.indexOf("{contextMenu && ("), source.indexOf("{pendingMutation && ("));
-  // The shared create-file/create-directory button plus rename and delete
-  // cover the four rendered menu actions (move is drag-only now).
-  assert.equal((menuSection.match(/disabled=\{mutationBusy\}/g) ?? []).length, 3);
+  // Create-file/create-directory (2), copy, cut, rename and delete use the
+  // shared busy guard; paste adds its own clipboard-null guard.
+  assert.equal((menuSection.match(/disabled=\{mutationBusy\}/g) ?? []).length, 6);
+});
+
+test("clipboard holds a single entry set from the context menu", () => {
+  assert.match(source, /useState<\{ path: string; mode: "copy" \| "cut" \} \| null>\(null\)/);
+  assert.match(source, /setLastContextEntry\(\{ path: target\.fullPath, isDir: target\.isDir \}\)/);
+  assert.match(source, /setClipboard\(\{ path: contextMenu\.target\.fullPath, mode: "copy" \}\)/);
+  assert.match(source, /setClipboard\(\{ path: contextMenu\.target\.fullPath, mode: "cut" \}\)/);
+});
+
+test("entries held as cut render dimmed", () => {
+  assert.match(source, /const isCut = cutPath !== null && cutPath !== undefined && sameFilePath\(cutPath, node\.fullPath\)/);
+  assert.match(source, /opacity: isCut \? 0\.5 : 1/);
+  assert.match(source, /cutPath=\{cutPath\}/);
+});
+
+test("copy and cut menu labels exist in every locale", async () => {
+  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+    const messages = await readFile(new URL(`../lib/i18n/messages/${locale}.ts`, import.meta.url), "utf8");
+    assert.match(messages, /"files\.copy":/);
+    assert.match(messages, /"files\.cut":/);
+  }
 });
 
 test("name dialog handles Escape from the form and associates its label", () => {
@@ -51,4 +72,33 @@ test("rejects malformed success responses with empty or whitespace paths", () =>
   );
   assert.match(validationBlock, /data\.sourcePath\.trim\(\)\.length === 0/);
   assert.match(validationBlock, /data\.destinationPath\.trim\(\)\.length === 0/);
+});
+
+test("project switches clear clipboard and conflict state", () => {
+  assert.match(source, /setClipboard\(null\);\s*setLastContextEntry\(null\);\s*setPasteConflict\(null\);/);
+});
+
+test("mutation server errors carry the HTTP status for conflict detection", () => {
+  assert.match(source, /class FileMutationServerError extends Error \{/);
+  assert.match(source, /public readonly status: number/);
+  assert.match(source, /throw new FileMutationServerError\(data\.error, response\.status\)/);
+  assert.match(source, /type === "rename" \|\| type === "move" \|\| type === "copy"/);
+});
+
+test("keyboard shortcuts scope copy, cut and paste to the explorer tree", () => {
+  assert.match(source, /const handleExplorerKeyDown = useCallback\(\(event: React\.KeyboardEvent\) => \{/);
+  assert.match(source, /if \(!\(event\.metaKey \|\| event\.ctrlKey\) \|\| event\.altKey \|\| event\.shiftKey\) return;/);
+  assert.match(source, /target\.tagName === "INPUT" \|\| target\.tagName === "TEXTAREA" \|\| target\.isContentEditable/);
+  assert.match(source, /selection\.toString\(\)\.length > 0/);
+  assert.match(source, /tabIndex=\{0\}/);
+  assert.match(source, /onKeyDown=\{handleExplorerKeyDown\}/);
+});
+
+test("paste resolves a smart destination and reports conflicts via dialog", () => {
+  assert.match(source, /const pasteDestinationDirectory = useMemo\(/);
+  assert.match(source, /cause\.status === 409 && conflict === "error"/);
+  assert.match(source, /setPasteConflict\(\{ type, sourcePath, destinationDirectory, name: getFileName\(sourcePath\) \}\)/);
+  assert.match(source, /t\("files\.conflictOverwrite"\)/);
+  assert.match(source, /t\("files\.conflictKeepBoth"\)/);
+  assert.match(source, /disabled=\{mutationBusy \|\| !clipboard\}/);
 });

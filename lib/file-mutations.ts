@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { isExistingFilePathAllowed, isFilePathAllowed } from "./file-access";
-import { isWindowsAbsolutePath } from "./paths";
+import { isWindowsAbsolutePath, samePath } from "./paths";
 
 export class FileMutationError extends Error {
   constructor(
@@ -12,10 +12,13 @@ export class FileMutationError extends Error {
   }
 }
 
+export type FileMutationConflictMode = "error" | "overwrite" | "keep-both";
+
 export type FileMutation =
   | { type: "create-file" | "create-directory"; directory: string; name: string }
   | { type: "rename"; sourcePath: string; name: string }
-  | { type: "move"; sourcePath: string; destinationDirectory: string }
+  | { type: "move"; sourcePath: string; destinationDirectory: string; conflict: FileMutationConflictMode }
+  | { type: "copy"; sourcePath: string; destinationDirectory: string; conflict: FileMutationConflictMode }
   | { type: "delete"; sourcePath: string }
   | { type: "write"; sourcePath: string; content: string; baseMtimeMs: number | null };
 
@@ -52,6 +55,40 @@ function pathEntryExists(target: string): boolean {
     if (isFileSystemError(error) && error.code === "ENOENT") return false;
     throw error;
   }
+}
+
+function resolveKeepBothName(directory: string, name: string): string {
+  const resolver = resolverFor(directory, name);
+  const dot = name.lastIndexOf(".");
+  const hasExtension = dot > 0;
+  const base = hasExtension ? name.slice(0, dot) : name;
+  const extension = hasExtension ? name.slice(dot) : "";
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const candidate = attempt === 0
+      ? `${base} copy${extension}`
+      : `${base} copy ${attempt + 1}${extension}`;
+    if (!pathEntryExists(resolver.join(directory, candidate))) return candidate;
+  }
+  throw new FileMutationError(409, "A file or directory with this name already exists");
+}
+
+function removeExistingForOverwrite(target: string, allowedRoots: Set<string>): void {
+  if (!isExistingFilePathAllowed(target, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
+  const stat = fs.lstatSync(target);
+  fs.rmSync(target, { recursive: stat.isDirectory(), force: false });
+}
+
+function createStagingContainer(directory: string, allowedRoots: Set<string>): string {
+  // Exclusive mkdtemp container beside the destination for staged overwrite
+  // copies: the caller copies the source into it while the destination is
+  // still intact, then swaps the payload over the destination.
+  const prefix = resolverFor(directory).join(directory, ".pi-staging-");
+  if (!isFilePathAllowed(prefix, allowedRoots)) {
+    throw new FileMutationError(403, "Destination is outside the allowed roots");
+  }
+  return fs.mkdtempSync(prefix);
 }
 
 function nearestExistingAncestor(target: string, allowedRoots: Set<string>): string | null {
@@ -218,10 +255,73 @@ function executeMutation(
 
   assertName(name);
   assertDirectory(destinationDirectory, allowedRoots);
-  const destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
+  let destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
   assertParentAllowed(destinationPath, allowedRoots);
 
-  assertVacant(destinationPath, allowedRoots);
+  const conflict = "conflict" in mutation ? mutation.conflict : "error";
+  let removedExisting = false;
+
+  if (mutation.type !== "rename" && conflict === "overwrite" && samePath(destinationPath, mutation.sourcePath)) {
+    // Overwriting an entry with itself is a no-op — the source must survive.
+    return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+  }
+
+  if (mutation.type !== "rename" && pathEntryExists(destinationPath)) {
+    // Canonical checks run BEFORE any removal so a rejected overwrite can
+    // never destroy the existing destination — including through a symlink
+    // alias of the source.
+    const canonicalSourcePath = fs.realpathSync(mutation.sourcePath);
+    let canonicalDestinationPath: string | null = null;
+    try {
+      canonicalDestinationPath = fs.realpathSync(destinationPath);
+    } catch {
+      // Broken symlink destination: treat as lexically distinct.
+    }
+    if (canonicalDestinationPath !== null && samePath(canonicalDestinationPath, canonicalSourcePath)) {
+      // The destination is a symlink alias of the source.
+      if (conflict === "error") {
+        throw new FileMutationError(409, "A file or directory with this name already exists");
+      }
+      if (conflict === "overwrite") {
+        return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+      }
+      // keep-both falls through to normal destination naming below.
+    } else if (conflict === "overwrite" && fs.lstatSync(mutation.sourcePath).isDirectory()) {
+      const canonicalDestinationDirectory = fs.realpathSync(destinationDirectory);
+      const canonicalDestinationForCheck = resolverFor(
+        canonicalDestinationDirectory,
+        canonicalSourcePath,
+      ).join(
+        canonicalDestinationDirectory,
+        resolverFor(destinationDirectory).basename(destinationPath),
+      );
+      if (isSameOrDescendant(canonicalDestinationForCheck, canonicalSourcePath)) {
+        throw new FileMutationError(
+          400,
+          mutation.type === "copy"
+            ? "A folder cannot be copied into itself or one of its subfolders"
+            : "A folder cannot be moved into itself or one of its subfolders",
+        );
+      }
+    }
+
+    if (conflict === "error") {
+      throw new FileMutationError(409, "A file or directory with this name already exists");
+    }
+    if (conflict === "overwrite") {
+      // Removal is deferred: copy branches stage the replacement while the
+      // destination is still intact; the move branch removes just before its
+      // rename.
+      removedExisting = true;
+    } else {
+      destinationPath = resolverFor(destinationDirectory).join(
+        destinationDirectory,
+        resolveKeepBothName(destinationDirectory, name),
+      );
+    }
+  } else {
+    assertVacant(destinationPath, allowedRoots);
+  }
 
   if (fs.lstatSync(mutation.sourcePath).isDirectory()) {
     const canonicalSourcePath = fs.realpathSync(mutation.sourcePath);
@@ -229,15 +329,125 @@ function executeMutation(
     const canonicalDestinationPath = resolverFor(
       canonicalDestinationDirectory,
       canonicalSourcePath,
-    ).join(canonicalDestinationDirectory, name);
+    ).join(canonicalDestinationDirectory, resolverFor(destinationDirectory).basename(destinationPath));
     if (isSameOrDescendant(canonicalDestinationPath, canonicalSourcePath)) {
       throw new FileMutationError(
         400,
-        "A folder cannot be moved into itself or one of its subfolders",
+        mutation.type === "copy"
+          ? "A folder cannot be copied into itself or one of its subfolders"
+          : "A folder cannot be moved into itself or one of its subfolders",
       );
     }
   }
 
+  if (mutation.type === "copy") {
+    const sourceStat = fs.lstatSync(mutation.sourcePath);
+    if (sourceStat.isSymbolicLink()) {
+      // A directly selected symlink is copied as a link, never dereferenced.
+      const linkTarget = fs.readlinkSync(mutation.sourcePath);
+      if (removedExisting) {
+        // A link cannot be staged; capture the target first, then remove the
+        // destination and recreate the link. A racer that recreates the name
+        // first makes symlinkSync fail with EEXIST (mapped to 409).
+        removeExistingForOverwrite(destinationPath, allowedRoots);
+      }
+      fs.symlinkSync(linkTarget, destinationPath);
+      return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+    }
+    if (sourceStat.isDirectory()) {
+      if (removedExisting) {
+        // Stage the copy while the destination is still intact, then swap it
+        // in, so a failed copy (permissions, disk space) never leaves the
+        // destination destroyed.
+        const stagingDir = createStagingContainer(destinationDirectory, allowedRoots);
+        const stagedPath = resolverFor(stagingDir, name).join(stagingDir, name);
+        let destinationRemoved = false;
+        try {
+          fs.cpSync(mutation.sourcePath, stagedPath, {
+            recursive: true,
+            dereference: false,
+            verbatimSymlinks: true,
+            force: false,
+            errorOnExist: true,
+          });
+          removeExistingForOverwrite(destinationPath, allowedRoots);
+          destinationRemoved = true;
+          fs.renameSync(stagedPath, destinationPath);
+        } catch (error) {
+          if (!destinationRemoved) {
+            // Destination intact — drop the staged attempt.
+            fs.rmSync(stagingDir, { recursive: true, force: true });
+          }
+          // Otherwise the destination is already gone and the staged payload
+          // inside stagingDir is the only recovery artifact: the container is
+          // deliberately left in place while the error propagates.
+          throw error;
+        }
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      } else {
+        fs.cpSync(mutation.sourcePath, destinationPath, {
+          recursive: true,
+          dereference: false,
+          verbatimSymlinks: true,
+          force: false,
+          errorOnExist: true,
+        });
+      }
+      return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+    }
+    if (removedExisting) {
+      // Staged file copy: write into an exclusive container while the
+      // destination is still intact, then swap in, so a failed copy never
+      // leaves the destination destroyed.
+      const stagingDir = createStagingContainer(destinationDirectory, allowedRoots);
+      const stagedPath = resolverFor(stagingDir, name).join(stagingDir, name);
+      let destinationRemoved = false;
+      try {
+        fs.copyFileSync(mutation.sourcePath, stagedPath);
+        removeExistingForOverwrite(destinationPath, allowedRoots);
+        destinationRemoved = true;
+        fs.renameSync(stagedPath, destinationPath);
+      } catch (error) {
+        if (!destinationRemoved) {
+          // Destination intact — drop the staged attempt.
+          fs.rmSync(stagingDir, { recursive: true, force: true });
+        }
+        // Otherwise the destination is already gone and the staged payload
+        // inside stagingDir is the only recovery artifact: the container is
+        // deliberately left in place while the error propagates.
+        throw error;
+      }
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+    }
+    if (conflict === "keep-both") {
+      // COPYFILE_EXCL so a racer that created the candidate between the
+      // vacancy check and the copy cannot be silently overwritten. Re-derive
+      // the next candidate from the original name.
+      let target = destinationPath;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          fs.copyFileSync(mutation.sourcePath, target, fs.constants.COPYFILE_EXCL);
+          return { sourcePath: mutation.sourcePath, destinationPath: target, deleted: false };
+        } catch (error) {
+          if (!isFileSystemError(error) || error.code !== "EEXIST") throw error;
+          target = resolverFor(destinationDirectory).join(
+            destinationDirectory,
+            resolveKeepBothName(destinationDirectory, name),
+          );
+        }
+      }
+      throw new FileMutationError(409, "A file or directory with this name already exists");
+    }
+    // error mode: COPYFILE_EXCL so a racer cannot be silently overwritten;
+    // EEXIST maps to 409 in mutateFile.
+    fs.copyFileSync(mutation.sourcePath, destinationPath, fs.constants.COPYFILE_EXCL);
+    return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+  }
+
+  if (removedExisting) {
+    removeExistingForOverwrite(destinationPath, allowedRoots);
+  }
   fs.renameSync(mutation.sourcePath, destinationPath);
   return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
 }
