@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./FileExplorer.tsx", import.meta.url), "utf8");
+const source = (await readFile(new URL("./FileExplorer.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 
 test("explorer nodes expose a native contextual mutation menu", () => {
   assert.match(source, /onContextMenu=\{\(event\) => onContextMenu\?\.\(node, event\)\}/);
@@ -72,4 +72,29 @@ test("rejects malformed success responses with empty or whitespace paths", () =>
   );
   assert.match(validationBlock, /data\.sourcePath\.trim\(\)\.length === 0/);
   assert.match(validationBlock, /data\.destinationPath\.trim\(\)\.length === 0/);
+});
+
+test("mutation server errors carry the HTTP status for conflict detection", () => {
+  assert.match(source, /class FileMutationServerError extends Error \{/);
+  assert.match(source, /public readonly status: number/);
+  assert.match(source, /throw new FileMutationServerError\(data\.error, response\.status\)/);
+  assert.match(source, /type === "rename" \|\| type === "move" \|\| type === "copy"/);
+});
+
+test("keyboard shortcuts scope copy, cut and paste to the explorer tree", () => {
+  assert.match(source, /const handleExplorerKeyDown = useCallback\(\(event: React\.KeyboardEvent\) => \{/);
+  assert.match(source, /if \(!\(event\.metaKey \|\| event\.ctrlKey\) \|\| event\.altKey \|\| event\.shiftKey\) return;/);
+  assert.match(source, /target\.tagName === "INPUT" \|\| target\.tagName === "TEXTAREA" \|\| target\.isContentEditable/);
+  assert.match(source, /selection\.toString\(\)\.length > 0/);
+  assert.match(source, /tabIndex=\{0\}/);
+  assert.match(source, /onKeyDown=\{handleExplorerKeyDown\}/);
+});
+
+test("paste resolves a smart destination and reports conflicts via dialog", () => {
+  assert.match(source, /const pasteDestinationDirectory = useMemo\(/);
+  assert.match(source, /cause\.status === 409 && conflict === "error"/);
+  assert.match(source, /setPasteConflict\(\{ type, sourcePath, destinationDirectory, name: getFileName\(sourcePath\) \}\)/);
+  assert.match(source, /t\("files\.conflictOverwrite"\)/);
+  assert.match(source, /t\("files\.conflictKeepBoth"\)/);
+  assert.match(source, /disabled=\{mutationBusy \|\| !clipboard\}/);
 });
