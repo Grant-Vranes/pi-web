@@ -114,6 +114,27 @@ test("overwrite removes the existing destination before copying or moving", asyn
   assert.ok(!fs.existsSync(path.join(root, "b.txt")));
 });
 
+test("directory overwrite replaces the existing destination via the staged path", async (t) => {
+  const root = fixture(t);
+  const source = path.join(root, "src");
+  const destinationDirectory = path.join(root, "dest");
+  const destination = path.join(destinationDirectory, "src");
+  fs.mkdirSync(source, { recursive: true });
+  fs.mkdirSync(destination, { recursive: true });
+  fs.writeFileSync(path.join(source, "inner.txt"), "new");
+  fs.writeFileSync(path.join(destination, "old.txt"), "old");
+
+  const response = await callMutation(source, "copy", { destinationDirectory, conflict: "overwrite" });
+  assert.equal(response.status, 200);
+  assert.equal(fs.readFileSync(path.join(destination, "inner.txt"), "utf8"), "new");
+  assert.ok(!fs.existsSync(path.join(destination, "old.txt")));
+  assert.ok(fs.existsSync(source));
+  assert.equal(
+    fs.readdirSync(destinationDirectory).filter((entry) => entry.includes(".pi-staging-")).length,
+    0,
+  );
+});
+
 test("move keep-both renames the incoming entry instead of failing", async (t) => {
   const root = fixture(t);
   fs.mkdirSync(path.join(root, "from"));
