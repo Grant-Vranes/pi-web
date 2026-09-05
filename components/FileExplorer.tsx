@@ -899,6 +899,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setTreeRefreshKey((key) => key + 1);
       if (result.destinationPath) setHighlightedPaths(new Set([result.destinationPath]));
       if (mode === "cut") setClipboard(null);
+      if (mode === "cut" && result.destinationPath) {
+        onFileMutation?.({ kind: "move", sourcePath, destinationPath: result.destinationPath });
+      }
     }
     catch (cause) {
       if (requestId === mutationRequestRef.current) {
@@ -912,7 +915,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     finally {
       if (requestId === mutationRequestRef.current) setMutationBusy(false);
     }
-  }, [t]);
+  }, [onFileMutation, t]);
 
   const handleExplorerKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
@@ -922,6 +925,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
     const selection = window.getSelection();
     if (selection && selection.toString().length > 0) return;
+    if (mutationBusy) return;
     event.preventDefault();
     if (key === "c") {
       if (lastContextEntry) setClipboard({ path: lastContextEntry.path, mode: "copy" });
