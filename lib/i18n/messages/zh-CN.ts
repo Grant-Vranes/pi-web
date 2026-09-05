@@ -306,7 +306,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.cut": "剪切",
     "files.paste": "粘贴",
     "files.conflictTitle": "同名文件已存在",
-    "files.conflictMessage": "目标文件夹中已存在“{name}”。",
+    "files.conflictMessage": "“{directory}”中已存在“{name}”。",
     "files.conflictOverwrite": "覆盖",
     "files.conflictKeepBoth": "保留两者",
     "chat.loadingSession": "正在加载会话...",

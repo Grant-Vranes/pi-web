@@ -1089,6 +1089,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setMutationName("");
       setMutationBusy(false);
       setMutationError(null);
+      setClipboard(null);
+      setLastContextEntry(null);
+      setPasteConflict(null);
     }
 
     setLoading(cwdChanged);
@@ -1509,7 +1512,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         <div role="dialog" aria-modal="true" aria-label={t("files.conflictTitle")} style={{ position: "fixed", inset: 0, zIndex: 31, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.35)" }}>
           <div onKeyDown={(event) => { if (event.key === "Escape") setPasteConflict(null); }} style={{ width: 320, padding: 16, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)" }}>
             <div style={{ marginBottom: 6, color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{t("files.conflictTitle")}</div>
-            <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>{t("files.conflictMessage", { name: pasteConflict.name })}</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>{t("files.conflictMessage", { name: pasteConflict.name, directory: getFileName(pasteConflict.destinationDirectory) })}</div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
               <button type="button" disabled={mutationBusy} onClick={() => setPasteConflict(null)}>{t("i18n.cancel")}</button>
               <button type="button" disabled={mutationBusy} onClick={() => { const conflict = pasteConflict; setPasteConflict(null); void performPaste(conflict.type === "copy" ? "copy" : "cut", conflict.sourcePath, conflict.destinationDirectory, "keep-both"); }}>{t("files.conflictKeepBoth")}</button>

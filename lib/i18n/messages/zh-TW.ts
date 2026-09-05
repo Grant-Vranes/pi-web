@@ -306,7 +306,7 @@ export const zhTWLocale: LocalePlugin = {
     "files.cut": "剪下",
     "files.paste": "貼上",
     "files.conflictTitle": "同名檔案已存在",
-    "files.conflictMessage": "目標資料夾中已存在「{name}」。",
+    "files.conflictMessage": "「{directory}」中已存在「{name}」。",
     "files.conflictOverwrite": "覆蓋",
     "files.conflictKeepBoth": "保留兩者",
     "chat.loadingSession": "正在載入工作階段...",

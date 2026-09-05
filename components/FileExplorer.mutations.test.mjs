@@ -74,6 +74,10 @@ test("rejects malformed success responses with empty or whitespace paths", () =>
   assert.match(validationBlock, /data\.destinationPath\.trim\(\)\.length === 0/);
 });
 
+test("project switches clear clipboard and conflict state", () => {
+  assert.match(source, /setClipboard\(null\);\s*setLastContextEntry\(null\);\s*setPasteConflict\(null\);/);
+});
+
 test("mutation server errors carry the HTTP status for conflict detection", () => {
   assert.match(source, /class FileMutationServerError extends Error \{/);
   assert.match(source, /public readonly status: number/);

@@ -155,3 +155,55 @@ test("invalid conflict mode is a 400", async (t) => {
   const response = await callMutation(path.join(root, "a.txt"), "copy", { destinationDirectory: root, conflict: "merge" });
   assert.equal(response.status, 400);
 });
+
+test("overwrite into a source descendant is rejected without deleting the existing destination", async (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, "src", "nested", "src"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src", "nested", "src", "marker.txt"), "keep me");
+
+  const response = await callMutation(path.join(root, "src"), "copy", {
+    destinationDirectory: path.join(root, "src", "nested"),
+    conflict: "overwrite",
+  });
+  assert.equal(response.status, 400);
+  // The pre-existing destination must survive the rejected operation.
+  assert.equal(fs.readFileSync(path.join(root, "src", "nested", "src", "marker.txt"), "utf8"), "keep me");
+
+  const moveResponse = await callMutation(path.join(root, "src"), "move", {
+    destinationDirectory: path.join(root, "src", "nested"),
+    conflict: "overwrite",
+  });
+  assert.equal(moveResponse.status, 400);
+  assert.equal(fs.readFileSync(path.join(root, "src", "nested", "src", "marker.txt"), "utf8"), "keep me");
+});
+
+test("overwrite through a symlink alias of the source is a no-op", async (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, "data"));
+  fs.writeFileSync(path.join(root, "data", "a.txt"), "x");
+  fs.symlinkSync(path.join(root, "data"), path.join(root, "alias"));
+
+  const response = await callMutation(path.join(root, "data", "a.txt"), "copy", {
+    destinationDirectory: path.join(root, "alias"),
+    conflict: "overwrite",
+  });
+  assert.equal(response.status, 200);
+  // The source survives and nothing is duplicated through the alias.
+  assert.equal(fs.readFileSync(path.join(root, "data", "a.txt"), "utf8"), "x");
+  assert.equal(fs.readdirSync(path.join(root, "data")).length, 1);
+});
+
+test("copying a symlink recreates the link", async (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, "target.txt"), "t");
+  fs.symlinkSync(path.join(root, "target.txt"), path.join(root, "link"));
+  fs.mkdirSync(path.join(root, "dest"));
+
+  const response = await callMutation(path.join(root, "link"), "copy", { destinationDirectory: path.join(root, "dest") });
+  assert.equal(response.status, 200);
+  const copied = path.join(root, "dest", "link");
+  assert.ok(fs.lstatSync(copied).isSymbolicLink());
+  assert.equal(fs.readFileSync(copied, "utf8"), "t");
+  // The original target is untouched.
+  assert.equal(fs.readFileSync(path.join(root, "target.txt"), "utf8"), "t");
+});

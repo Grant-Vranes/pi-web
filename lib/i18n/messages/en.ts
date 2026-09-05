@@ -306,7 +306,7 @@ export const enLocale: LocalePlugin = {
     "files.cut": "Cut",
     "files.paste": "Paste",
     "files.conflictTitle": "Name already exists",
-    "files.conflictMessage": "\"{name}\" already exists in the destination folder.",
+    "files.conflictMessage": "\"{name}\" already exists in \"{directory}\".",
     "files.conflictOverwrite": "Overwrite",
     "files.conflictKeepBoth": "Keep both",
     "chat.loadingSession": "Loading session...",
