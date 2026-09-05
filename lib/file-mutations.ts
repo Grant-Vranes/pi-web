@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { isExistingFilePathAllowed, isFilePathAllowed } from "./file-access";
-import { isWindowsAbsolutePath } from "./paths";
+import { isWindowsAbsolutePath, samePath } from "./paths";
 
 export class FileMutationError extends Error {
   constructor(
@@ -247,11 +247,18 @@ function executeMutation(
   let destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
   assertParentAllowed(destinationPath, allowedRoots);
 
+  const conflict = "conflict" in mutation ? mutation.conflict : "error";
+
+  if (mutation.type !== "rename" && conflict === "overwrite" && samePath(destinationPath, mutation.sourcePath)) {
+    // Overwriting an entry with itself is a no-op — the source must survive.
+    return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
+  }
+
   if (mutation.type !== "rename" && pathEntryExists(destinationPath)) {
-    if (mutation.conflict === "error") {
+    if (conflict === "error") {
       throw new FileMutationError(409, "A file or directory with this name already exists");
     }
-    if (mutation.conflict === "overwrite") {
+    if (conflict === "overwrite") {
       removeExistingForOverwrite(destinationPath, allowedRoots);
     } else {
       destinationPath = resolverFor(destinationDirectory).join(
