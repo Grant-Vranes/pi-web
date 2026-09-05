@@ -12,10 +12,13 @@ export class FileMutationError extends Error {
   }
 }
 
+export type FileMutationConflictMode = "error" | "overwrite" | "keep-both";
+
 export type FileMutation =
   | { type: "create-file" | "create-directory"; directory: string; name: string }
   | { type: "rename"; sourcePath: string; name: string }
-  | { type: "move"; sourcePath: string; destinationDirectory: string }
+  | { type: "move"; sourcePath: string; destinationDirectory: string; conflict: FileMutationConflictMode }
+  | { type: "copy"; sourcePath: string; destinationDirectory: string; conflict: FileMutationConflictMode }
   | { type: "delete"; sourcePath: string }
   | { type: "write"; sourcePath: string; content: string; baseMtimeMs: number | null };
 
@@ -52,6 +55,29 @@ function pathEntryExists(target: string): boolean {
     if (isFileSystemError(error) && error.code === "ENOENT") return false;
     throw error;
   }
+}
+
+function resolveKeepBothName(directory: string, name: string): string {
+  const resolver = resolverFor(directory, name);
+  const dot = name.lastIndexOf(".");
+  const hasExtension = dot > 0;
+  const base = hasExtension ? name.slice(0, dot) : name;
+  const extension = hasExtension ? name.slice(dot) : "";
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const candidate = attempt === 0
+      ? `${base} copy${extension}`
+      : `${base} copy ${attempt + 1}${extension}`;
+    if (!pathEntryExists(resolver.join(directory, candidate))) return candidate;
+  }
+  throw new FileMutationError(409, "A file or directory with this name already exists");
+}
+
+function removeExistingForOverwrite(target: string, allowedRoots: Set<string>): void {
+  if (!isExistingFilePathAllowed(target, allowedRoots)) {
+    throw new FileMutationError(403, "Access denied");
+  }
+  const stat = fs.lstatSync(target);
+  fs.rmSync(target, { recursive: stat.isDirectory(), force: false });
 }
 
 function nearestExistingAncestor(target: string, allowedRoots: Set<string>): string | null {
@@ -218,10 +244,24 @@ function executeMutation(
 
   assertName(name);
   assertDirectory(destinationDirectory, allowedRoots);
-  const destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
+  let destinationPath = resolverFor(destinationDirectory).join(destinationDirectory, name);
   assertParentAllowed(destinationPath, allowedRoots);
 
-  assertVacant(destinationPath, allowedRoots);
+  if (mutation.type !== "rename" && pathEntryExists(destinationPath)) {
+    if (mutation.conflict === "error") {
+      throw new FileMutationError(409, "A file or directory with this name already exists");
+    }
+    if (mutation.conflict === "overwrite") {
+      removeExistingForOverwrite(destinationPath, allowedRoots);
+    } else {
+      destinationPath = resolverFor(destinationDirectory).join(
+        destinationDirectory,
+        resolveKeepBothName(destinationDirectory, name),
+      );
+    }
+  } else {
+    assertVacant(destinationPath, allowedRoots);
+  }
 
   if (fs.lstatSync(mutation.sourcePath).isDirectory()) {
     const canonicalSourcePath = fs.realpathSync(mutation.sourcePath);
@@ -229,13 +269,30 @@ function executeMutation(
     const canonicalDestinationPath = resolverFor(
       canonicalDestinationDirectory,
       canonicalSourcePath,
-    ).join(canonicalDestinationDirectory, name);
+    ).join(canonicalDestinationDirectory, resolverFor(destinationDirectory).basename(destinationPath));
     if (isSameOrDescendant(canonicalDestinationPath, canonicalSourcePath)) {
       throw new FileMutationError(
         400,
-        "A folder cannot be moved into itself or one of its subfolders",
+        mutation.type === "copy"
+          ? "A folder cannot be copied into itself or one of its subfolders"
+          : "A folder cannot be moved into itself or one of its subfolders",
       );
     }
+  }
+
+  if (mutation.type === "copy") {
+    if (fs.lstatSync(mutation.sourcePath).isDirectory()) {
+      fs.cpSync(mutation.sourcePath, destinationPath, {
+        recursive: true,
+        dereference: false,
+        verbatimSymlinks: true,
+        force: false,
+        errorOnExist: true,
+      });
+    } else {
+      fs.copyFileSync(mutation.sourcePath, destinationPath);
+    }
+    return { sourcePath: mutation.sourcePath, destinationPath, deleted: false };
   }
 
   fs.renameSync(mutation.sourcePath, destinationPath);
