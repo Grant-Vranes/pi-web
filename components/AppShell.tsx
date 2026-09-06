@@ -955,6 +955,37 @@ export function AppShell() {
     }
   }, [invalidateWorkspaceRestore, selectedSession, router]);
 
+  const handleProjectDeleted = useCallback((nextRoot: string | null) => {
+    // A whole project was deleted while it was the active one. SessionSidebar
+    // already removed its rail history entry and picked the most-recent
+    // remaining project root (option A); relocate the composer there so the
+    // deleted folder is neither left selected nor its rail tile reappears.
+    invalidateWorkspaceRestore();
+    setRefreshKey((k) => k + 1);
+    const draftId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    setNewSessionDraftId(draftId);
+    activeNewSessionDraftKeyRef.current = nextRoot ? `new:${draftId}:${nextRoot}` : null;
+    setSelectedSession(null);
+    setNewSessionCwd(nextRoot);
+    setSessionKey((k) => k + 1);
+    setBranchTree([]);
+    setBranchActiveLeafId(null);
+    setSystemPrompt(null);
+    setSystemTools(null);
+    setSystemInfoLoading(false);
+    setActiveTopPanel(null);
+    // File tabs are keyed by path and may belong to the deleted project's
+    // sessions; drop them so nothing lingers from the removed workspace.
+    fileTabsRef.current = [];
+    activeFileTabIdRef.current = null;
+    setFileTabs([]);
+    setActiveFileTabId(null);
+    setRightPanelOpen(false);
+    router.replace("/", { scroll: false });
+  }, [invalidateWorkspaceRestore, router]);
+
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
@@ -1159,6 +1190,7 @@ export function AppShell() {
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
+        onProjectDeleted={handleProjectDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}

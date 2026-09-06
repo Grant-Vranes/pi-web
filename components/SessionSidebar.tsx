@@ -99,6 +99,10 @@ interface Props {
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
+  /** After a project's sessions are deleted when that project is the active
+   *  one, relocate the open composer to the given next project root (null to
+   *  start empty). Lets the shell remount so the deleted rail tile disappears. */
+  onProjectDeleted?: (nextRoot: string | null) => void;
   selectedCwd?: string | null;
   onCwdChange?: (
     cwd: string | null,
@@ -478,7 +482,7 @@ function PiWebTitle({ projectName }: { projectName: string | null }) {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileMutation, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, onProjectDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileMutation, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t, locale } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1073,18 +1077,33 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       previous.filter((entry) => entry.key !== project.key && entry.root !== project.root),
     );
 
-    // If the active session belonged to the deleted project, delegate cleanup
-    // of the open tab to the shell (matches single-session delete flow).
-    if (onSessionDeleted && selectedSessionId) {
-      const active = allSessions.find((session) => session.id === selectedSessionId);
-      if (active && workspaceKeyOf(active) === project.key) {
-        onSessionDeleted(selectedSessionId);
-        return { ok: true };
-      }
+    // Determine whether the folder under the open tab/composer is the one being
+    // deleted so we can relocate instead of leaving its icon as the selection.
+    const active = selectedSessionId
+      ? allSessions.find((session) => session.id === selectedSessionId)
+      : undefined;
+    const currentProjectKey = active
+      ? workspaceKeyOf(active)
+      : selectedProject?.key ?? null;
+
+    // Not currently inside the deleted project: removing it from the persisted
+    // rail history is enough — refresh and the tile disappears.
+    if (currentProjectKey !== project.key) {
+      await loadSessions(false, true);
+      return { ok: true };
     }
+
+    // The deleted project was the active one. Auto-jump (option A) to the most
+    // recently active remaining project so the shell relocates the composer and
+    // the deleted project's rail tile is dropped rather than re-selected.
+    const remaining = getRecentProjects(
+      allSessions.filter((session) => workspaceKeyOf(session) !== project.key),
+    );
+    const nextRoot = remaining[0]?.root ?? null;
+    onProjectDeleted?.(nextRoot);
     await loadSessions(false, true);
     return { ok: true };
-  }, [allSessions, selectedSessionId, onSessionDeleted, setProjectRailHistory, loadSessions]);
+  }, [allSessions, selectedSessionId, selectedProject, onProjectDeleted, setProjectRailHistory, loadSessions]);
 
   const canCreateSession = Boolean(selectedCwd);
   const newSessionDisabled = !selectedCwd;

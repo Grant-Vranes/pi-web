@@ -33,8 +33,10 @@ test("handleDeleteProject removes the project from persisted rail history", () =
   assert.match(deleteSource, /entry\.key !== project\.key/);
 });
 
-test("handleDeleteProject clears the open tab via onSessionDeleted when affected", () => {
-  assert.match(deleteSource, /workspaceKeyOf\(active\) === project\.key/);
-  assert.match(deleteSource, /onSessionDeleted\(selectedSessionId\)/);
+test("handleDeleteProject relocates the open tab away via onProjectDeleted when affected", () => {
+  assert.match(deleteSource, /workspaceKeyOf\(active\)/);
+  assert.match(deleteSource, /currentProjectKey !== project\.key/);
+  assert.match(deleteSource, /getRecentProjects\(/);
+  assert.match(deleteSource, /onProjectDeleted\?\.\(nextRoot\)/);
   assert.match(deleteSource, /loadSessions\(false, true\)/);
 });
