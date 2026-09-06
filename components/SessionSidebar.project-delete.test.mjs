@@ -33,28 +33,9 @@ test("handleDeleteProject removes the project from persisted rail history", () =
   assert.match(deleteSource, /entry\.key !== project\.key/);
 });
 
-test("onRemoveProjectIcon light action just drops the pinned rail slot", () => {
-  const removeStart = source.indexOf("const handleRemoveProjectIcon = useCallback");
-  assert.notEqual(removeStart, -1, "icon-remove handler exists");
-  const removeSource = source.slice(
-    removeStart,
-    removeStart + 600,
-  );
-  assert.match(removeSource, /setProjectRailHistory\(/);
-  assert.match(removeSource, /entry\.key !== project\.key/);
-  assert.match(source, /onRemoveProjectIcon=\{handleRemoveProjectIcon\}/);
-  // It must not call the destructive batch route.
-  assert.ok(
-    !/onRemoveProjectIcon.*\/api\/sessions\?projectRoot=/.test(removeSource),
-    "light action performs no API deletion",
-  );
-});
-
 test("handleDeleteProject relocates away via onProjectDeleted when project is active", () => {
-  const relocateEnd = deleteSource.indexOf("const handleRemoveProjectIcon = useCallback");
-  const cl = relocateEnd === -1 ? deleteSource : deleteSource.slice(0, relocateEnd);
-  assert.match(cl, /currentProjectKey !== project\.key/);
-  assert.match(cl, /getRecentProjects\(/);
-  assert.match(cl, /onProjectDeleted\?\.\(nextRoot\)/);
-  assert.match(cl, /loadSessions\(false, true\)/);
+  assert.match(deleteSource, /currentProjectKey !== project\.key/);
+  assert.match(deleteSource, /getRecentProjects\(/);
+  assert.match(deleteSource, /onProjectDeleted\?\.\(nextRoot\)/);
+  assert.match(deleteSource, /loadSessions\(false, true\)/);
 });

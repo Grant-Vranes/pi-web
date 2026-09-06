@@ -244,7 +244,6 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.deleteProjectRunningBlocked": "请先停止运行中的会话",
     "sidebar.deleteProjectProgress": "删除中…",
     "sidebar.deleteProjectError": "无法删除该项目。",
-    "sidebar.removeProjectIcon": "仅移除图标",
     "sidebar.cancelRemove": "取消",
     "sidebar.rename": "重命名",
     "sidebar.delete": "删除",

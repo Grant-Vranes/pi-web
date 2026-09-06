@@ -244,7 +244,6 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.deleteProjectRunningBlocked": "請先停止執行中的會話",
     "sidebar.deleteProjectProgress": "刪除中…",
     "sidebar.deleteProjectError": "無法刪除該專案。",
-    "sidebar.removeProjectIcon": "僅移除圖示",
     "sidebar.cancelRemove": "取消",
     "sidebar.rename": "重新命名",
     "sidebar.delete": "刪除",
