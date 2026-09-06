@@ -2236,3 +2236,25 @@ span.token.table {
 .project-rail-tooltip-delete-actions .project-rail-tooltip-delete-btn {
   flex: 1;
 }
+
+/* Light, non-destructive "only remove the project's icon from the rail". */
+.project-rail-tooltip-icon-remove {
+  width: 100%;
+  margin-top: 6px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.project-rail-tooltip-icon-remove:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}

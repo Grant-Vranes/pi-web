@@ -244,6 +244,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.deleteProjectRunningBlocked": "Stop running sessions first",
     "sidebar.deleteProjectProgress": "Deleting…",
     "sidebar.deleteProjectError": "Could not delete this project.",
+    "sidebar.removeProjectIcon": "Only remove icon",
     "sidebar.cancelRemove": "Cancel",
     "sidebar.rename": "Rename",
     "sidebar.delete": "Delete",
