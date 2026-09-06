@@ -8,7 +8,7 @@ import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { loadCollapsedDayGroups, saveCollapsedDayGroups, hasCollapseBeenSeeded, markCollapseSeeded } from "@/lib/session-day-collapse";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, mergeProjectLists, sessionsForProject, type ProjectSelection } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { displayCwd } from "@/lib/cwd-display";
 import { getFileName } from "@/lib/file-paths";
@@ -140,11 +140,6 @@ interface Props {
   onSessionsChange?: (sessions: SessionInfo[]) => void;
 }
 
-
-interface ProjectSelection {
-  root: string;
-  key: string;
-}
 
 interface ValidatedProject {
   cwd: string;
@@ -936,6 +931,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         root: data.projectRoot,
         key: data.projectKey,
       });
+      // An explicitly re-added directory may have been deleted earlier in this
+      // session; clear the deletion guard so it re-enters the persisted rail
+      // history instead of vanishing again on the next project switch.
+      deletedProjectKeysRef.current.delete(data.projectKey);
+      deletedProjectKeysRef.current.delete(data.projectRoot);
+      deletedProjectKeysRef.current.delete(data.cwd);
       saveLastCustomCwd(data.cwd);
       setCustomPathValue(data.cwd);
       setSelectedCwd(data.cwd);
@@ -953,11 +954,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setCustomPathError(null);
     setDropdownOpen(false);
   }, []);
+
+  // Shared by the rail tiles and the workspace dropdown so both entrances
+  // behave identically. Explicit re-selection clears the deletion guard so a
+  // directory the user deliberately deleted and re-added can re-enter the
+  // persisted rail history instead of vanishing on the next project switch.
+  const selectProject = useCallback((project: ProjectSelection) => {
+    deletedProjectKeysRef.current.delete(project.key);
+    deletedProjectKeysRef.current.delete(project.root);
+    setSelectedCwd(project.root);
+    setProjectFilter("");
+    setCustomPathOpen(false);
+    setCustomPathValue("");
+    setCustomPathError(null);
+    setDropdownOpen(false);
+  }, []);
   const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
       if (data.cwd) {
+        // Explicit selection clears any deletion guard for this directory so
+        // it can re-enter the persisted rail history.
+        deletedProjectKeysRef.current.delete(data.cwd);
         setSelectedCwd(data.cwd);
         setCustomPathOpen(false);
         setCustomPathError(null);
@@ -1022,11 +1041,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setTimeout(() => setFileBrowserOpening(false), 600);
   }, [selectedCwd, selectedCwdProp, fileBrowserOpening, t]);
 
-  const recentProjects = getRecentProjects(allSessions);
-  const showProjectFilter = recentProjects.length > 8;
-  const visibleProjects = projectFilter.trim()
-    ? recentProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : recentProjects;
+  const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
@@ -1066,8 +1081,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // the user clicks elsewhere because getRecentProjects() is session-backed.
   // Deliberately append rather than promote: selecting a rail item must never
   // make the project icons reshuffle underneath the pointer.
+  //
+  // Projects deleted via the rail are excluded (deletedProjectKeysRef):
+  // between the DELETE succeeding and the refreshed session list landing,
+  // projectFor(selectedCwd) can still resolve to the deleted project from a
+  // stale snapshot, and appending it here would re-persist a tile the user
+  // just removed — the delete would look like a no-op. Clicking the tile
+  // again clears the guard, so re-adding a directory still works.
+  const deletedProjectKeysRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!selectedProject) return;
+    if (deletedProjectKeysRef.current.has(selectedProject.key) || deletedProjectKeysRef.current.has(selectedProject.root)) return;
     setProjectRailHistory((previous) => {
       const index = previous.findIndex((project) => project.key === selectedProject.key);
       if (index === -1) return [...previous, selectedProject].slice(-30);
@@ -1078,17 +1102,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     });
   }, [selectedProject]);
 
-  const railProjects = useMemo(() => {
-    const seen = new Set<string>();
-    // Once a project has entered the rail, its persisted order is authoritative
-    // (including explicit drag sorting). Newly discovered session projects and
-    // a just-selected empty directory are appended as safe fallbacks.
-    return [...projectRailHistory, ...recentProjects, selectedProject].filter((project): project is ProjectSelection => {
-      if (!project || seen.has(project.key)) return false;
-      seen.add(project.key);
-      return true;
-    });
-  }, [projectRailHistory, recentProjects, selectedProject]);
+  // One shared list for the rail tiles and the workspace dropdown so the two
+  // always render the same projects in the same order. Server-derived
+  // projects own identity; the persisted rail history contributes ordering
+  // and keeps remembered session-less directories visible.
+  const railProjects = useMemo(
+    () => mergeProjectLists(projectRailHistory, recentProjects, selectedProject),
+    [projectRailHistory, recentProjects, selectedProject],
+  );
+  // The dropdown renders the same shared list as the rail, with an optional
+  // text filter on the displayed root.
+  const showProjectFilter = railProjects.length > 8;
+  const visibleProjects = projectFilter.trim()
+    ? railProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
+    : railProjects;
   const handleDeleteProject = useCallback(async (project: ProjectSelection): Promise<ProjectDeleteOutcome> => {
     let res: Response;
     try {
@@ -1110,12 +1137,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       return { ok: false, reason: "failed" };
     }
 
-    // Drop the project from the persisted rail history. Its sessions are gone,
-    // so it would otherwise linger only as a stale rail entry.
-    setProjectRailHistory((previous) =>
-      previous.filter((entry) => entry.key !== project.key && entry.root !== project.root),
-    );
-
     // Determine whether the folder under the open tab/composer is the one being
     // deleted so we can relocate instead of leaving its icon as the selection.
     const active = selectedSessionId
@@ -1128,21 +1149,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // Not currently inside the deleted project: removing it from the persisted
     // rail history is enough — refresh and the tile disappears.
     if (currentProjectKey !== project.key) {
+      setProjectRailHistory((previous) =>
+        previous.filter((entry) => entry.key !== project.key && entry.root !== project.root),
+      );
       await loadSessions(false, true);
       return { ok: true };
     }
 
-    // The deleted project was the active one. Auto-jump (option A) to the most
-    // recently active remaining project so the shell relocates the composer and
-    // the deleted project's rail tile is dropped rather than re-selected.
-    const remaining = getRecentProjects(
-      allSessions.filter((session) => workspaceKeyOf(session) !== project.key),
-    );
-    const nextRoot = remaining[0]?.root ?? null;
-    onProjectDeleted?.(nextRoot);
+    // The deleted project was the active one. Block the history-append effect
+    // for this identity (key, displayed root, and the exact cwd under the open
+    // composer — for worktree sessions that cwd differs from the project root)
+    // before any state can change, so no stale render between now and the
+    // refreshed session list can re-append the deleted tile.
+    deletedProjectKeysRef.current.add(project.key);
+    deletedProjectKeysRef.current.add(project.root);
+    if (selectedCwd) deletedProjectKeysRef.current.add(selectedCwd);
+
+    // Refresh first, then drop the rail-history entry and relocate in one
+    // batch: once allSessions no longer lists the deleted project, the
+    // selectedProject effect, rail merge, and (when nothing remains) the
+    // auto-select effect all read post-deletion data and cannot resurrect it.
     await loadSessions(false, true);
+    setProjectRailHistory((previous) =>
+      previous.filter((entry) => entry.key !== project.key && entry.root !== project.root),
+    );
+
+    // Auto-jump to the first remaining project in rail order — the topmost
+    // tile the user actually sees — falling back to session recency when the
+    // rail has nothing else (or only the deleted entry) to offer.
+    const nextRoot = railProjects.find(
+      (candidate) => candidate.key !== project.key && candidate.root !== project.root,
+    )?.root
+      ?? getRecentProjects(
+        allSessions.filter((session) => workspaceKeyOf(session) !== project.key),
+      )[0]?.root
+      ?? null;
+    setSelectedCwd(nextRoot);
+    onProjectDeleted?.(nextRoot);
     return { ok: true };
-  }, [allSessions, selectedSessionId, selectedProject, onProjectDeleted, setProjectRailHistory, loadSessions]);
+  }, [allSessions, selectedCwd, selectedSessionId, selectedProject, railProjects, onProjectDeleted, setProjectRailHistory, loadSessions]);
 
   const canCreateSession = Boolean(selectedCwd);
   const newSessionDisabled = !selectedCwd;
@@ -1242,14 +1287,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         runningSessionIds={runningSessionIds}
         runningSessionDetails={runningSessionDetails}
         unreadSessionIds={unreadSessionIds}
-        onSelect={(project) => {
-          setSelectedCwd(project.root);
-          setProjectFilter("");
-          setCustomPathOpen(false);
-          setCustomPathValue("");
-          setCustomPathError(null);
-          setDropdownOpen(false);
-        }}
+        onSelect={selectProject}
         onAddProject={handleCustomPathClick}
         onReorder={(keys) => {
           const byKey = new Map(railProjects.map((project) => [project.key, project]));
@@ -1377,11 +1415,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <button
                     key={project.key}
                     onClick={() => {
-                      setSelectedCwd(project.root);
-                      setProjectFilter("");
-                      setCustomPathOpen(false);
-                      setCustomPathError(null);
-                      setDropdownOpen(false);
+                      selectProject(project);
                     }}
                     style={{
                       display: "flex",
