@@ -25,22 +25,6 @@ const MINIMAP_PADDING = 12;
 const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
-export const MINIMAP_PINNED_STORAGE_KEY = "pi-chat-minimap-pinned";
-
-export function getPinnedStateFromStorage(value: string | null): boolean {
-  return value === "1";
-}
-
-export function shouldKeepPreviewOpen({
-  isPinned,
-  minimapHovered,
-}: {
-  isPinned: boolean;
-  minimapHovered: boolean;
-}): boolean {
-  return isPinned || minimapHovered;
-}
-
 interface AssistantPreview {
   markdown: string;
   element: HTMLDivElement | null;
@@ -255,7 +239,6 @@ export function ChatMinimap({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
   const [minimapHovered, setMinimapHovered] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -556,28 +539,18 @@ export function ChatMinimap({
   }, [cancelPreviewHide]);
 
   const schedulePreviewHide = useCallback(() => {
-    if (isPinned) return;
     cancelPreviewHide();
     previewHideTimerRef.current = setTimeout(() => {
       previewHideTimerRef.current = null;
       setMinimapHovered(false);
       setMouseYRatio(null);
     }, PREVIEW_HIDE_DELAY);
-  }, [cancelPreviewHide, isPinned]);
+  }, [cancelPreviewHide]);
 
   useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
 
   useEffect(() => {
     setHasMounted(true);
-    try {
-      const raw = window.localStorage.getItem(MINIMAP_PINNED_STORAGE_KEY);
-      if (getPinnedStateFromStorage(raw)) {
-        setIsPinned(true);
-        setMinimapHovered(true);
-      }
-    } catch {
-      // ignore storage access errors
-    }
   }, []);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -610,7 +583,7 @@ export function ChatMinimap({
     window.addEventListener("mouseup", onUp);
   }, [findNearestNode, scrollToNode, showPreview, visible]);
 
-  const isPreviewOpen = shouldKeepPreviewOpen({ isPinned, minimapHovered });
+  const isPreviewOpen = minimapHovered;
   const nearestNode = mouseYRatio === null ? null : findNearestNode(mouseYRatio);
   const nearestNodeIndex = nearestNode?.index ?? null;
 
@@ -696,19 +669,6 @@ export function ChatMinimap({
 
   return (
     <>
-      {isPinned && isPreviewOpen && previewBody && (
-        <div
-          ref={previewBoxRef}
-          className={styles.previewInline}
-          data-minimap-preview-box=""
-          data-pinned=""
-          onMouseEnter={showPreview}
-          onMouseDown={(event) => event.stopPropagation()}
-          onMouseMove={(event) => event.stopPropagation()}
-        >
-          {previewBody}
-        </div>
-      )}
       <div
         style={{
           width: MINIMAP_WIDTH,
@@ -723,36 +683,6 @@ export function ChatMinimap({
           flexDirection: "column",
         }}
       >
-        <div
-          className={styles.railHeader}
-          onMouseEnter={showPreview}
-          onMouseLeave={schedulePreviewHide}
-        >
-          <button
-            type="button"
-            className={styles.railPinButton}
-            aria-pressed={isPinned}
-            aria-label={isPinned ? "取消固定时间线" : "固定时间线"}
-            title={isPinned ? "取消固定时间线" : "固定时间线"}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              const nextPinned = !isPinned;
-              setIsPinned(nextPinned);
-              if (nextPinned) setMinimapHovered(true);
-              try {
-                window.localStorage.setItem(MINIMAP_PINNED_STORAGE_KEY, nextPinned ? "1" : "0");
-              } catch {
-                // ignore storage write errors
-              }
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M15.2 3.8c-1.8 2-4.4 3.1-7.1 3.1H6.8l.2 5.1-1.8 1.8 6.9 6.9 1.8-1.8 5.1.2V16c0-2.7 1.1-5.3 3.1-7.1L15.2 3.8Z" />
-              <path d="m9.3 14.7-5 5" />
-            </svg>
-          </button>
-        </div>
         <div
           ref={containerRef}
           onMouseDown={handleMouseDown}
@@ -822,12 +752,13 @@ export function ChatMinimap({
           })}
         </div>
 
-        {!isPinned && isPreviewOpen && previewBody && (
+        {isPreviewOpen && previewBody && (
           <div
             ref={previewBoxRef}
             className={styles.preview}
             data-minimap-preview-box=""
             onMouseEnter={showPreview}
+            onMouseLeave={schedulePreviewHide}
             onMouseDown={(event) => event.stopPropagation()}
             onMouseMove={(event) => event.stopPropagation()}
           >
