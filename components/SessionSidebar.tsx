@@ -1046,6 +1046,46 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       return true;
     });
   }, [projectRailHistory, recentProjects, selectedProject]);
+  const handleDeleteProject = useCallback(async (project: ProjectSelection): Promise<ProjectDeleteOutcome> => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/sessions?projectRoot=${encodeURIComponent(project.root)}`, { method: "DELETE" });
+    } catch {
+      return { ok: false, reason: "failed" };
+    }
+    let payload: { ok?: boolean } | undefined;
+    try {
+      payload = (await res.json().catch(() => undefined)) as { ok?: boolean } | undefined;
+    } catch {
+      /* ignore */
+    }
+    if (!res.ok && res.status !== 404) {
+      if (res.status === 409) return { ok: false, reason: "blocked-running" };
+      // A payload with blocked-running should already be handled above; any
+      // other non-2xx is a hard failure.
+      if (payload?.ok) return { ok: true };
+      return { ok: false, reason: "failed" };
+    }
+
+    // Drop the project from the persisted rail history. Its sessions are gone,
+    // so it would otherwise linger only as a stale rail entry.
+    setProjectRailHistory((previous) =>
+      previous.filter((entry) => entry.key !== project.key && entry.root !== project.root),
+    );
+
+    // If the active session belonged to the deleted project, delegate cleanup
+    // of the open tab to the shell (matches single-session delete flow).
+    if (onSessionDeleted && selectedSessionId) {
+      const active = allSessions.find((session) => session.id === selectedSessionId);
+      if (active && workspaceKeyOf(active) === project.key) {
+        onSessionDeleted(selectedSessionId);
+        return { ok: true };
+      }
+    }
+    await loadSessions(false, true);
+    return { ok: true };
+  }, [allSessions, selectedSessionId, onSessionDeleted, setProjectRailHistory, loadSessions]);
+
   const canCreateSession = Boolean(selectedCwd);
   const newSessionDisabled = !selectedCwd;
   const showWorktreeSwitcher = Boolean(
@@ -1160,6 +1200,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             return project ? [project] : [];
           }));
         }}
+        onDeleteProject={handleDeleteProject}
       />
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
       {/* Workspace module */}
@@ -1813,7 +1854,7 @@ function ProjectRail({
   onSelect: (project: ProjectSelection) => void;
   onAddProject: () => void;
   onReorder: (keys: string[]) => void;
-  onDeleteProject?: (projectRoot: string) => Promise<ProjectDeleteOutcome>;
+  onDeleteProject?: (project: ProjectSelection) => Promise<ProjectDeleteOutcome>;
 }) {
   const { t } = useI18n();
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -1968,7 +2009,7 @@ function ProjectRailTooltip({
   detailById: Map<string, RunningRpcSessionDetail>;
   unreadSessionIds: ReadonlySet<string>;
   anchorEl: HTMLElement | null | undefined;
-  onDeleteProject?: (projectRoot: string) => Promise<ProjectDeleteOutcome>;
+  onDeleteProject?: (project: ProjectSelection) => Promise<ProjectDeleteOutcome>;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
@@ -2186,7 +2227,7 @@ function ProjectRailTooltip({
                     setBusy(true);
                     setDeleteError(null);
                     try {
-                      const outcome = await onDeleteProject(project.root);
+                      const outcome = await onDeleteProject(project);
                       if (!outcome.ok) {
                         setDeleteError(outcome.reason);
                       }
