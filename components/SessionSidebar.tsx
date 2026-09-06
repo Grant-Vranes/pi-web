@@ -1785,6 +1785,11 @@ function ConversationsTabs({
  * selection state while making cross-project activity visible at a glance.
  * Hovering a project tile surfaces a right-side floating card with the
  * project's running sessions, their git branch, and current model. */
+/** Outcome reported back to the rail card after a project delete attempt. */
+type ProjectDeleteOutcome =
+  | { ok: true }
+  | { ok: false; reason: "blocked-running" | "failed" };
+
 function ProjectRail({
   projects,
   selectedProjectKey,
@@ -1796,6 +1801,7 @@ function ProjectRail({
   onSelect,
   onAddProject,
   onReorder,
+  onDeleteProject,
 }: {
   projects: readonly ProjectSelection[];
   selectedProjectKey: string | null;
@@ -1807,6 +1813,7 @@ function ProjectRail({
   onSelect: (project: ProjectSelection) => void;
   onAddProject: () => void;
   onReorder: (keys: string[]) => void;
+  onDeleteProject?: (projectRoot: string) => Promise<ProjectDeleteOutcome>;
 }) {
   const { t } = useI18n();
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -1921,6 +1928,7 @@ function ProjectRail({
                   detailById={detailById}
                   unreadSessionIds={unreadSessionIds}
                   anchorEl={hoveredEl}
+                  onDeleteProject={onDeleteProject}
                   onMouseEnter={cancelScheduledClose}
                   onMouseLeave={scheduleTooltipClose}
                 />
@@ -1950,6 +1958,7 @@ function ProjectRailTooltip({
   detailById,
   unreadSessionIds,
   anchorEl,
+  onDeleteProject,
   onMouseEnter,
   onMouseLeave,
 }: {
@@ -1959,6 +1968,7 @@ function ProjectRailTooltip({
   detailById: Map<string, RunningRpcSessionDetail>;
   unreadSessionIds: ReadonlySet<string>;
   anchorEl: HTMLElement | null | undefined;
+  onDeleteProject?: (projectRoot: string) => Promise<ProjectDeleteOutcome>;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
@@ -1993,6 +2003,21 @@ function ProjectRailTooltip({
     list.sort((a, b) => b.modified.localeCompare(a.modified));
     return list;
   }, [allSessions, project.key, unreadSessionIds]);
+
+  // Two-step destructive delete of the whole project. `armed` swaps the footer
+  // ``btn into an inline confirm; `busy` throttles the in-flight call; the
+  // parent reports blocked-running/failed back so the card can surface it.
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<"blocked-running" | "failed" | null>(null);
+  const busyCount = running.length;
+  const projectSessionsCount = useMemo(() => {
+    let count = 0;
+    for (const session of allSessions) {
+      if (workspaceKeyOf(session) === project.key) count += 1;
+    }
+    return count;
+  }, [allSessions, project.key]);
 
   // Measure the anchor tile and keep the fixed card aligned on scroll/resize.
   // useLayoutEffect so the rect is current before paint (no flicker).
@@ -2108,6 +2133,87 @@ function ProjectRailTooltip({
       {running.length === 0 && unread.length === 0 ? (
         <div className="project-rail-tooltip-section">
           <div className="project-rail-tooltip-empty">{t("sidebar.projectNotRunning")}</div>
+        </div>
+      ) : null}
+      {onDeleteProject ? (
+        <div className="project-rail-tooltip-delete">
+          {!armed && !busy ? (
+            busyCount > 0 ? (
+              <button
+                type="button"
+                className="project-rail-tooltip-delete-btn is-disabled"
+                disabled
+                title={t("sidebar.deleteProjectRunningBlocked")}
+              >
+                {t("sidebar.deleteProject")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="project-rail-tooltip-delete-btn"
+                onClick={() => {
+                  setArmed(true);
+                  setDeleteError(null);
+                }}
+              >
+                {t("sidebar.deleteProject")}
+              </button>
+            )
+          ) : busy ? (
+            <button type="button" className="project-rail-tooltip-delete-btn is-busy" disabled>
+              {t("sidebar.deleteProjectProgress")}
+            </button>
+          ) : (
+            <div className="project-rail-tooltip-delete-confirm">
+              <div className="project-rail-tooltip-delete-count">
+                {t("sidebar.deleteProjectCount")}{" "}
+                <span className="project-rail-tooltip-delete-count-num">
+                  {t("sidebar.deleteProjectConfirm", { count: String(projectSessionsCount) })}
+                </span>
+              </div>
+              {deleteError ? (
+                <div className="project-rail-tooltip-delete-error">
+                  {deleteError === "blocked-running"
+                    ? t("sidebar.deleteProjectRunningBlocked")
+                    : t("sidebar.deleteProjectError")}
+                </div>
+              ) : null}
+              <div className="project-rail-tooltip-delete-actions">
+                <button
+                  type="button"
+                  className="project-rail-tooltip-delete-btn is-danger"
+                  onClick={async () => {
+                    setBusy(true);
+                    setDeleteError(null);
+                    try {
+                      const outcome = await onDeleteProject(project.root);
+                      if (!outcome.ok) {
+                        setDeleteError(outcome.reason);
+                      }
+                      setArmed(false);
+                      setBusy(false);
+                    } catch {
+                      setDeleteError("failed");
+                      setArmed(false);
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  {t("sidebar.deleteProjectConfirm", { count: String(projectSessionsCount) })}
+                </button>
+                <button
+                  type="button"
+                  className="project-rail-tooltip-delete-btn"
+                  onClick={() => {
+                    setArmed(false);
+                    setDeleteError(null);
+                  }}
+                >
+                  {t("sidebar.cancelRemove")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </div>,
