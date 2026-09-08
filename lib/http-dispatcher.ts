@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import * as undici from "undici";
+import { buildProxyDispatcher } from "./proxy-connection";
+import { getProxyConfigPath, isProxyProtocol, readProxyConfig } from "./proxy-settings";
 
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 
@@ -57,6 +59,7 @@ function createUndiciOriginDispatcher(origin: string | URL, options: object): un
 
 export function configureHttpDispatcher(
   timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+  options: { proxyConfigPath?: string } = {},
 ): void {
   if (dispatcherGlobal.__piWebHttpDispatcherConfigured) return;
 
@@ -65,15 +68,32 @@ export function configureHttpDispatcher(
     throw new Error(`Invalid HTTP idle timeout: ${String(timeoutMs)}`);
   }
 
-  const dispatcher = withUndiciErrorListener(
-    new undici.EnvHttpProxyAgent({
-      allowH2: false,
-      bodyTimeout: normalizedTimeoutMs,
-      headersTimeout: normalizedTimeoutMs,
-      clientFactory: createUndiciClient,
-      factory: createUndiciOriginDispatcher,
-    }),
-  );
+  // Prefer the user-configured proxy (persisted in ~/.pi/agent/proxy.json).
+  // Applying it here means changes take effect on the next process restart,
+  // which matches the documented "restart to take effect" behavior.
+  // Reading can throw only on malformed/never-existing config; both are handled
+  // internally (readProxyConfig never throws and fails closed).
+  // Tests pass an isolated proxyConfigPath so they never depend on real machine
+  // state (e.g. a developer who already enabled a proxy).
+  const proxyConfig = readProxyConfig(options.proxyConfigPath ?? getProxyConfigPath());
+  const configuredProxy = proxyConfig.enabled
+    && isProxyProtocol(proxyConfig.protocol)
+    && buildProxyDispatcher(proxyConfig, {
+      bodyTimeoutMs: normalizedTimeoutMs,
+      headersTimeoutMs: normalizedTimeoutMs,
+    });
+
+  const dispatcher = configuredProxy
+    ? withUndiciErrorListener(configuredProxy)
+    : withUndiciErrorListener(
+        new undici.EnvHttpProxyAgent({
+          allowH2: false,
+          bodyTimeout: normalizedTimeoutMs,
+          headersTimeout: normalizedTimeoutMs,
+          clientFactory: createUndiciClient,
+          factory: createUndiciOriginDispatcher,
+        }),
+      );
   undici.setGlobalDispatcher(dispatcher);
 
   // Keep fetch and the dispatcher on the same undici implementation. Preserve
