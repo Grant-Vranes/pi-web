@@ -1534,7 +1534,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             switching between worktrees of one project keeps the row mounted
             instead of flickering while data refetches: all worktrees of a
             project share the same list anyway. */}
-        {showWorktreeSwitcher && worktreeState && (
+        {!sessionSearchOpen && showWorktreeSwitcher && worktreeState && (
           <WorktreeSwitcher
             worktreeState={worktreeState}
             currentWorktreePath={currentWorktreePath}
@@ -1543,7 +1543,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             style={{ marginTop: 6 }}
           />
         )}
-        {inactiveWorktreeSelector && (
+        {!sessionSearchOpen && inactiveWorktreeSelector && (
           <button
             type="button"
             aria-disabled="true"

@@ -58,6 +58,8 @@ interface FileData {
   language: string;
   size: number;
   mtimeMs: number;
+  nextOffset: number;
+  truncated: boolean;
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
@@ -1142,6 +1144,7 @@ function TextFileViewer({
   const [gitDiffLoading, setGitDiffLoading] = useState(false);
   const [gitDiffResolved, setGitDiffResolved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestedInitialDisplayMode = resolveInitialFileDisplayMode(initialState, initialDisplayMode);
   const initialWrapLines = initialState?.wrapLines ?? false;
@@ -1194,9 +1197,35 @@ function TextFileViewer({
     });
   }, []);
 
-  const fetchContent = useCallback((filePath: string) => {
+  useEffect(() => {
+    const nextState: FileViewerState = {
+      displayMode: requestedInitialDisplayMode,
+      wrapLines: initialWrapLines,
+      scrollTop: initialScrollTop,
+      scrollLeft: initialScrollLeft,
+    };
+
+    viewerStateRef.current = nextState;
+    scrollRestorePendingRef.current = true;
+    autoDiffAppliedRef.current = false;
+    setDisplayMode(requestedInitialDisplayMode);
+    setWrapLines(initialWrapLines);
+
+    return () => {
+      onStateChangeRef.current?.({ ...viewerStateRef.current });
+    };
+  }, [
+    filePath,
+    sourceSessionId,
+    requestedInitialDisplayMode,
+    initialWrapLines,
+    initialScrollTop,
+    initialScrollLeft,
+  ]);
+
+  const fetchContent = useCallback((filePath: string, offset = 0) => {
     const requestId = ++contentRequestRef.current;
-    return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
+    return fetch(getFileApiUrl(filePath, "read", sourceSessionId, { offset: offset || undefined }))
       .then((r) => r.json())
       .then((d: FileData & { error?: string }) => {
         if (requestId !== contentRequestRef.current) return null;
@@ -1205,14 +1234,18 @@ function TextFileViewer({
           return null;
         }
         setError(null);
-        setData(d);
-        // Draft absent → adopt the fresh disk mtime. Draft present and equal
-        // to disk → clean editor, refresh the base too. Draft present and
-        // different → the draft's persisted base stays authoritative so a
-        // stale save conflicts instead of silently overwriting.
-        const currentDraft = viewerStateRef.current.draft;
-        if (currentDraft === null || currentDraft === d.content) {
-          viewerStateRef.current.baseMtimeMs = d.mtimeMs;
+        setData((current) => offset && current
+          ? { ...d, content: current.content + d.content }
+          : d);
+        if (!offset) {
+          // Draft absent → adopt the fresh disk mtime. Draft present and equal
+          // to disk → clean editor, refresh the base too. Draft present and
+          // different → the draft's persisted base stays authoritative so a
+          // stale save conflicts instead of silently overwriting.
+          const currentDraft = viewerStateRef.current.draft;
+          if (currentDraft === null || currentDraft === d.content) {
+            viewerStateRef.current.baseMtimeMs = d.mtimeMs;
+          }
         }
         return d;
       })
@@ -1499,12 +1532,13 @@ function TextFileViewer({
     // explicit mode hint always wins over this default.
     if (
       defaultPreviewEligibleRef.current
+      && !data?.truncated
       && (data?.language === "markdown" || data?.language === "html")
     ) {
       defaultPreviewEligibleRef.current = false;
       updateDisplayMode("preview");
     }
-  }, [data?.language, updateDisplayMode]);
+  }, [data?.language, data?.truncated, updateDisplayMode]);
 
   useEffect(() => {
     if (gitDiffResolved && !hasGitDiff && displayMode === "diff") updateDisplayMode("source");
@@ -1534,7 +1568,7 @@ function TextFileViewer({
   const language = data?.language ?? "text";
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
-  const hasPreview = isHtml || isMarkdown;
+  const hasPreview = !data?.truncated && (isHtml || isMarkdown);
   const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
     && !(effectiveDisplayMode === "diff" && hasGitDiff)
     && !(effectiveDisplayMode === "preview" && hasPreview);
@@ -1798,7 +1832,7 @@ const lines = sourceLines;
     : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
 
   return (
-    <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}>
       <div
         className="file-viewer-toolbar"
         style={{
@@ -2135,6 +2169,35 @@ const lines = sourceLines;
           )}
         </div>
       )}
+      {data?.truncated && (
+        <div
+          className="file-viewer-load-more"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: "5px 8px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            color: "var(--text-dim)",
+            fontSize: 11,
+          }}
+        >
+          <span>{formatSize(data.nextOffset)} / {formatSize(data.size)}</span>
+          <button
+            type="button"
+            className="file-viewer-mode-button"
+            disabled={loadingMore}
+            onClick={() => {
+              setLoadingMore(true);
+              void fetchContent(filePath, data.nextOffset).finally(() => setLoadingMore(false));
+            }}
+          >
+            {loadingMore ? t("i18n.loading") : t("i18n.loadMore")}
+          </button>
+        </div>
+      )}
 
       {/* Content area */}
       <div
@@ -2144,7 +2207,7 @@ const lines = sourceLines;
           viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
           viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;
         }}
-        style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
+        style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
       >
         {isEditing ? (
           <div className="file-editor" style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg)" }}>
