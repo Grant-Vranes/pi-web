@@ -72,6 +72,24 @@ async function runPass(page, theme) {
   console.log(`[${theme}] search-hit decorations in edit mode: ${hits}`);
   assert.ok(hits >= 2, `${theme}: search matches highlighted in the editor`);
   await page.keyboard.press("Escape"); // close search
+
+  // Change indicators: editing a line must paint an amber (modified) bar in the
+  // change gutter, and inserting a new line must paint a green (added) bar.
+  await page.locator(".cm-editor .cm-line").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" // changed", { delay: 10 });
+  await page.waitForSelector(".cm-editor .cm-change-mod-bar", { timeout: 8000 });
+  const modBars = await page.locator(".cm-editor .cm-change-mod-bar").count();
+  assert.ok(modBars >= 1, `${theme}: modified line has a change-indicator bar`);
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("const EXTRA = 1;", { delay: 10 });
+  await page.waitForSelector(".cm-editor .cm-change-add-bar", { timeout: 8000 });
+  const addBars = await page.locator(".cm-editor .cm-change-add-bar").count();
+  assert.ok(addBars >= 1, `${theme}: inserted line has an added change-indicator bar`);
+  const gutterClass = await page.locator(".cm-editor .cm-change-gutter").count();
+  assert.equal(gutterClass, 1, `${theme}: change gutter element present`);
+  console.log(`[${theme}] change-indicator gutter bars -> modified: ${modBars}, added: ${addBars}`);
 }
 
 try {

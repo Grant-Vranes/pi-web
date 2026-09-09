@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>diff gutter check</title>
+<style>
+  #app { height: 300px; border: 1px solid #ccc; }
+  .cm-editor { font-size: 13px; }
+</style>
+<body>
+<div id="app"></div>
+<script type="module">
+  import { init, applyText } from "./app.js";
+  window.applyText = applyText;
+  init("line one\nline two\nline three\n");
+</script>
+</body>
+</html>

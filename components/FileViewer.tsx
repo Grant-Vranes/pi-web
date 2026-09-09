@@ -9,11 +9,12 @@ import {
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { EditorView, Decoration, keymap, lineNumbers, highlightSpecialChars, drawSelection } from "@codemirror/view";
-import { EditorState, type Extension } from "@codemirror/state";
+import { EditorView, Decoration, keymap, lineNumbers, highlightSpecialChars, drawSelection, gutter, GutterMarker } from "@codemirror/view";
+import { EditorState, RangeSet, RangeSetBuilder, type Extension } from "@codemirror/state";
 import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { indentOnInput, indentUnit } from "@codemirror/language";
 import { getEditorLanguage, getEditorHighlightStyle } from "@/lib/codemirror-languages";
+import { diffLinesBetween, type ChangeKind } from "@/lib/diff-lines";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -1130,6 +1131,65 @@ export function FileViewer({
   );
 }
 
+/* -------------------------------------------------------------------------
+ * Change-marker gutter for CodeMirror edit mode. A narrow gutter sits to the
+ * left of the line numbers and draws a green (added) or amber (modified) bar
+ * next to every line that differs from the editing baseline. Positions are
+ * computed against the exact `editorText` value CodeMirror holds, and the
+ * line-start offsets here come from the same `\r?\n` split that
+ * `diffLinesBetween` uses, so markers land on exactly the lines the diff
+ * flagged.
+ */
+
+class ChangeMark extends GutterMarker {
+  readonly elementClass: string;
+
+  constructor(readonly kind: ChangeKind) {
+    super();
+    this.elementClass = kind === "added" ? "cm-change-add" : "cm-change-mod";
+  }
+
+  override toDOM(): Node {
+    const el = document.createElement("div");
+    el.className = this.kind === "added" ? "cm-change-add-bar" : "cm-change-mod-bar";
+    return el;
+  }
+
+  override eq(other: GutterMarker): boolean {
+    return other instanceof ChangeMark && other.kind === this.kind;
+  }
+}
+
+class ChangeSpacer extends GutterMarker {
+  override eq(other: GutterMarker): boolean {
+    return other instanceof ChangeSpacer;
+  }
+}
+
+/** Character offset where each 0-based line of `text` begins. */
+function lineStarts(text: string): number[] {
+  const starts = [0];
+  const re = /\r?\n/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    starts.push(match.index + match[0].length);
+  }
+  return starts;
+}
+
+/** Build a RangeSet of change markers for the given changed-line map. */
+function buildChangeMarkers(changed: ReadonlyMap<number, ChangeKind>, text: string): RangeSet<GutterMarker> {
+  const starts = lineStarts(text);
+  const builder = new RangeSetBuilder<GutterMarker>();
+  const keys = [...changed.keys()].sort((a, b) => a - b);
+  for (const line of keys) {
+    const pos = starts[line];
+    if (pos === undefined) continue;
+    builder.add(pos, pos, new ChangeMark(changed.get(line) ?? "modified"));
+  }
+  return builder.finish();
+}
+
 function TextFileViewer({
   filePath,
   cwd,
@@ -1191,6 +1251,27 @@ function TextFileViewer({
     editorViewRef.current = ref?.view ?? null;
   }, []);
   const isEditing = editorText !== null;
+
+  // Baseline captured when edit mode is entered; the editing draft is compared
+  // against it to mark which lines the user changed. `data.content` is NOT
+  // stable (file watcher refreshes it), hence the dedicated ref.
+  const editorBaselineRef = useRef<string>("");
+  // Debounced CodeMirror change markers: [0-based current-line] → added/modified.
+  const [changeMarkerSet, setChangeMarkerSet] = useState<RangeSet<GutterMarker> | null>(null);
+
+  useEffect(() => {
+    if (editorText === null) {
+      setChangeMarkerSet(null);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      const { changed } = diffLinesBetween(editorBaselineRef.current, editorText);
+      setChangeMarkerSet(changed.size === 0
+        ? RangeSet.empty as RangeSet<GutterMarker>
+        : buildChangeMarkers(changed, editorText));
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [editorText]);
 
   onStateChangeRef.current = onStateChange;
 
@@ -1285,6 +1366,7 @@ function TextFileViewer({
     updateDisplayMode("source");
     setSaveConflict(false);
     setSaveError(null);
+    editorBaselineRef.current = data.content;
     setEditorText(data.content);
     viewerStateRef.current.draft = data.content;
     persistViewerState();
@@ -1655,6 +1737,12 @@ function TextFileViewer({
   // blends with the surrounding panel.
   const editorExtensions = useMemo<Extension[]>(() => {
     const list: Extension[] = [
+      gutter({
+        class: "cm-change-gutter",
+        markers: () => changeMarkerSet ?? (RangeSet.empty as RangeSet<GutterMarker>),
+        initialSpacer: () => new ChangeSpacer(),
+        renderEmptyElements: true,
+      }),
       lineNumbers(),
       highlightSpecialChars(),
       drawSelection(),
@@ -1685,6 +1773,28 @@ function TextFileViewer({
           color: "var(--text-dim)",
           borderRight: "1px solid var(--border)",
         },
+        ".cm-change-gutter": {
+          width: "6px",
+        },
+        ".cm-change-gutter .cm-gutterElement": {
+          padding: "0",
+          minWidth: "6px",
+          display: "flex",
+          alignItems: "stretch",
+          justifyContent: "center",
+        },
+        ".cm-change-add-bar": {
+          width: "3px",
+          alignSelf: "stretch",
+          backgroundColor: "#4ade80",
+          borderRadius: "2px",
+        },
+        ".cm-change-mod-bar": {
+          width: "3px",
+          alignSelf: "stretch",
+          backgroundColor: "#f59e0b",
+          borderRadius: "2px",
+        },
         ".cm-lineNumbers .cm-gutterElement": {
           padding: "0 10px 0 0",
           minWidth: "38px",
@@ -1706,7 +1816,7 @@ function TextFileViewer({
     }
 
     return list;
-  }, [clampedActiveIndex, isDark, isEditing, language, searchMatches, searchOpen]);
+  }, [changeMarkerSet, clampedActiveIndex, isDark, isEditing, language, searchMatches, searchOpen]);
 
   useEffect(() => {
     const updateSelectedLineRange = () => {
