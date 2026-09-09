@@ -229,8 +229,8 @@ export function ProxyConfig({ onClose, embedded = false }: { onClose: () => void
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("settings.proxy.title")} subtitle="~/.pi/agent/proxy.json" closeLabel={t("i18n.close")} onClose={onClose}>
-      <ConfigDetailStack className="is-fill" style={{ padding: 16 }}>
-        <ConfigDetail style={{ gap: 4 }}>
+      <ConfigDetail style={{ padding: 16, gap: 4 }}>
+        <ConfigDetailStack className="is-fill">
           {loading ? (
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("i18n.loading")}</div>
           ) : (
@@ -337,8 +337,8 @@ export function ProxyConfig({ onClose, embedded = false }: { onClose: () => void
               </p>
             </>
           )}
-        </ConfigDetail>
-      </ConfigDetailStack>
+        </ConfigDetailStack>
+      </ConfigDetail>
 
       <ConfigFooter status={statusNode}>
         {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
