@@ -17,7 +17,11 @@ const textViewer = functionBlock("TextFileViewer", null);
 
 test("search bar drives both read and edit modes", () => {
   assert.match(textViewer, /findMatches\(searchText, searchQuery, searchCaseSensitive\)/);
-  assert.match(textViewer, /editor\.setSelectionRange\(match\.start, match\.end\)/);
+  // Edit mode: highlight + navigate via the CodeMirror view.
+  assert.match(textViewer, /view\.dispatch\([\s\S]*?selection: \{ anchor: match\.start, head: match\.end \}/);
+  assert.match(textViewer, /EditorView\.scrollIntoView\(match\.start, \{ y: "center" \}\)/);
+  assert.match(textViewer, /Decoration\.mark\(\{\s*class: index === clampedActiveIndex/);
+  // Read mode: still navigates by source line node.
   assert.match(textViewer, /file-source-line\[data-line-number="\$\{match\.line\}"\]/);
 });
 

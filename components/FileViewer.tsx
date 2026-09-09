@@ -8,6 +8,12 @@ import {
 } from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import { EditorView, Decoration, keymap, lineNumbers, highlightSpecialChars, drawSelection } from "@codemirror/view";
+import { EditorState, type Extension } from "@codemirror/state";
+import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { indentOnInput, indentUnit } from "@codemirror/language";
+import { getEditorLanguage, getEditorHighlightStyle } from "@/lib/codemirror-languages";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -1178,8 +1184,12 @@ function TextFileViewer({
   const [saveConflict, setSaveConflict] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const editorGutterRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<HTMLElement | null>(null);
+  const editorViewRef = useRef<EditorView | null>(null);
+  const codeMirrorRefAdapter = useCallback((ref: ReactCodeMirrorRef | null) => {
+    editorRef.current = ref?.editor ?? null;
+    editorViewRef.current = ref?.view ?? null;
+  }, []);
   const isEditing = editorText !== null;
 
   onStateChangeRef.current = onStateChange;
@@ -1375,14 +1385,13 @@ function TextFileViewer({
     setActiveMatchIndex(nextIndex);
     const match = searchMatches[nextIndex];
     if (isEditing) {
-      const editor = editorRef.current;
-      if (editor) {
-        editor.focus();
-        editor.setSelectionRange(match.start, match.end);
-        // Center the match line; wrapped lines make this an approximation.
-        const EDITOR_LINE_HEIGHT = 20.8;
-        const targetTop = (match.line - 1) * EDITOR_LINE_HEIGHT - editor.clientHeight / 2;
-        editor.scrollTop = Math.max(0, targetTop);
+      const view = editorViewRef.current;
+      if (view) {
+        view.focus();
+        view.dispatch({
+          selection: { anchor: match.start, head: match.end },
+          effects: EditorView.scrollIntoView(match.start, { y: "center" }),
+        });
       }
     } else {
       const line = contentRef.current?.querySelector<HTMLElement>(
@@ -1638,6 +1647,66 @@ function TextFileViewer({
     )) : null,
     [sourceLines, useLightweightSource, wrapLines],
   );
+
+  // CodeMirror extensions for the in-file editor. The language comes from the
+  // server's `data.language`, and search matches are drawn as inline marks so
+  // the edit surface highlights hits the same way the read-only source view
+  // does. Layout colors are mapped to the app's CSS variables so the editor
+  // blends with the surrounding panel.
+  const editorExtensions = useMemo<Extension[]>(() => {
+    const list: Extension[] = [
+      lineNumbers(),
+      highlightSpecialChars(),
+      drawSelection(),
+      history(),
+      indentOnInput(),
+      indentUnit.of("    "),
+      keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
+      EditorState.allowMultipleSelections.of(true),
+      getEditorLanguage(language),
+      getEditorHighlightStyle(isDark),
+      EditorView.theme({
+        "&": {
+          height: "100%",
+          fontSize: 13,
+          color: "var(--text)",
+          backgroundColor: "var(--bg)",
+        },
+        ".cm-scroller": {
+          fontFamily: "var(--font-mono)",
+          lineHeight: "20.8px",
+        },
+        ".cm-content": {
+          caretColor: "var(--accent)",
+          padding: "12px 0",
+        },
+        ".cm-gutters": {
+          backgroundColor: "var(--bg-panel)",
+          color: "var(--text-dim)",
+          borderRight: "1px solid var(--border)",
+        },
+        ".cm-lineNumbers .cm-gutterElement": {
+          padding: "0 10px 0 0",
+          minWidth: "38px",
+          textAlign: "right",
+        },
+        "&.cm-focused": { outline: "none" },
+      }),
+    ].filter(Boolean) as Extension[];
+
+    if (isEditing && searchOpen && searchMatches.length > 0) {
+      const marks = searchMatches.map((match, index) =>
+        Decoration.mark({
+          class: index === clampedActiveIndex
+            ? "file-source-search-hit-active"
+            : "file-source-search-hit",
+        }).range(match.start, match.end),
+      );
+      list.push(EditorView.decorations.of(Decoration.set(marks)));
+    }
+
+    return list;
+  }, [clampedActiveIndex, isDark, isEditing, language, searchMatches, searchOpen]);
 
   useEffect(() => {
     const updateSelectedLineRange = () => {
@@ -2211,59 +2280,17 @@ const lines = sourceLines;
       >
         {isEditing ? (
           <div className="file-editor" style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg)" }}>
-            <div
-              aria-hidden="true"
-              ref={editorGutterRef}
-              className="file-editor-gutter"
-              style={{
-                flexShrink: 0,
-                overflow: "hidden",
-                padding: "12px 0",
-                textAlign: "right",
-                color: "var(--text-dim)",
-                background: "var(--bg-panel)",
-                borderRight: "1px solid var(--border)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                fontVariantNumeric: "tabular-nums",
-                lineHeight: "20.8px",
-                userSelect: "none",
-                width: 48,
-              }}
-            >
-              {(editorText ?? "").split("\n").map((_line, lineIndex) => (
-                <div key={`editor-line-${lineIndex}`} style={{ paddingRight: 10 }}>{lineIndex + 1}</div>
-              ))}
-            </div>
-            <textarea
-              ref={editorRef}
-              className="file-editor-textarea"
-              value={editorText ?? ""}
-              onChange={(event) => updateEditorText(event.target.value)}
-              onScroll={(event) => {
-                if (editorGutterRef.current) {
-                  editorGutterRef.current.scrollTop = event.currentTarget.scrollTop;
-                }
-              }}
-              spellCheck={false}
-              wrap="off"
+            <CodeMirror
+              ref={codeMirrorRefAdapter}
+              className="file-codemirror"
               aria-label={getRelativeFilePath(filePath, cwd)}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                border: 0,
-                outline: "none",
-                resize: "none",
-                padding: "12px 16px",
-                background: "var(--bg)",
-                color: "var(--text)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 13,
-                lineHeight: "20.8px",
-                whiteSpace: "pre",
-                overflow: "auto",
-                tabSize: 4,
-              }}
+              value={editorText ?? ""}
+              onChange={(value) => updateEditorText(value)}
+              theme="none"
+              extensions={editorExtensions}
+              height="100%"
+              style={{ flex: 1, minWidth: 0, height: "100%" }}
+              basicSetup={false}
             />
           </div>
         ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
