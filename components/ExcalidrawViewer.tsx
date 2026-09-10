@@ -54,7 +54,6 @@ interface Props {
 }
 
 type MetaResponse = {
-  mtimeMs?: number;
   size?: number;
   error?: string;
 };
@@ -140,27 +139,22 @@ export default function ExcalidrawViewer({
   const loadScene = useCallback(async () => {
     const requestId = ++sceneRequestRef.current;
     try {
-      const content = await fetchSceneText(fetch, (offset) => (
+      const { text, mtimeMs, size: readSize } = await fetchSceneText(fetch, (offset) => (
         getFileApiUrl(filePath, "read", sourceSessionId, { offset })
       ));
       if (requestId !== sceneRequestRef.current) return;
 
       let parsed: Record<string, unknown>;
       try {
-        parsed = JSON.parse(content) as Record<string, unknown>;
+        parsed = JSON.parse(text) as Record<string, unknown>;
       } catch {
         throw new Error(t("i18n.invalidExcalidrawScene"));
       }
       if (!Array.isArray(parsed.elements)) throw new Error(t("i18n.invalidExcalidrawScene"));
 
-      const meta = await fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
-        .then((r) => r.json() as Promise<MetaResponse>)
-        .catch(() => null);
-      if (requestId !== sceneRequestRef.current) return;
-
       originalJsonRef.current = parsed;
-      baseMtimeMsRef.current = typeof meta?.mtimeMs === "number" ? meta.mtimeMs : 0;
-      if (typeof meta?.size === "number") setSize(meta.size);
+      baseMtimeMsRef.current = mtimeMs;
+      setSize(readSize);
       setScene({
         elements: parsed.elements as ExcalidrawElement[],
         appState: (parsed.appState ?? {}) as ExcalidrawAppState,
@@ -227,11 +221,12 @@ export default function ExcalidrawViewer({
   }, [filePath, sourceSessionId, watchEnabled, loadScene]);
 
   const enterEdit = useCallback(() => {
+    if (!scene) return;
     sceneRequestRef.current += 1;
     setSaveConflict(false);
     setSaveError(null);
     setMode("edit");
-  }, []);
+  }, [scene]);
 
   const exitEdit = useCallback(() => {
     if (dirty && !window.confirm(t("i18n.confirmDiscard"))) return;
@@ -318,7 +313,7 @@ export default function ExcalidrawViewer({
           {watching ? "live" : "static"}
         </span>
         {mode === "view" ? (
-          <button type="button" style={ICON_BUTTON_STYLE} onClick={enterEdit}>
+          <button type="button" style={ICON_BUTTON_STYLE} disabled={!scene} onClick={enterEdit}>
             {t("i18n.editFile")}
           </button>
         ) : (

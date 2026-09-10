@@ -22,15 +22,22 @@ test("renders view-only canvas in view mode", () => {
   assert.match(source, /viewModeEnabled=\{mode === "view"\}/);
 });
 
+test("disables the edit button until the scene is loaded", () => {
+  assert.match(source, /<button type="button" style=\{ICON_BUTTON_STYLE\} disabled=\{!scene\} onClick=\{enterEdit\}>/);
+});
+
 test("persists only scene fields via shared merge helper", () => {
   assert.match(source, /buildMergedScene\(/);
   assert.doesNotMatch(source, /type:\s*"excalidraw"/);
   assert.doesNotMatch(source, /version:\s*typeof original\.version/);
 });
 
-test("loads scene text through the chunked read helper", () => {
-  assert.match(source, /fetchSceneText\(fetch, \(offset\) =>/);
+test("loads scene text and save baseline from the chunked read helper", () => {
+  assert.match(source, /const \{ text, mtimeMs, size: readSize \} = await fetchSceneText\(fetch, \(offset\) =>/);
   assert.match(source, /getFileApiUrl\(filePath, "read", sourceSessionId, \{ offset \}\)/);
+  assert.match(source, /baseMtimeMsRef\.current = mtimeMs;/);
+  assert.match(source, /setSize\(readSize\);/);
+  assert.doesNotMatch(source, /meta\?\.mtimeMs/);
 });
 
 test("clears stale scene on load failures and hides the canvas while an error is shown", () => {
