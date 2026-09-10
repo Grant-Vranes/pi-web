@@ -13,6 +13,10 @@ import {
   type ExcalidrawAppState,
   type ExcalidrawElement,
 } from "@/lib/excalidraw-scene";
+// Static side-effect import: Turbopack cannot dynamically import() CSS. This
+// module itself is lazy-loaded via next/dynamic from FileViewer, so the
+// stylesheet still only loads when an .excalidraw file is opened.
+import "@excalidraw/excalidraw/index.css";
 
 interface SceneData {
   elements: ExcalidrawElement[];
@@ -36,11 +40,7 @@ function LoadingPlaceholder() {
 }
 
 const Excalidraw = dynamic(
-  () =>
-    Promise.all([
-      import("@excalidraw/excalidraw"),
-      import("@excalidraw/excalidraw/index.css"),
-    ]).then(([mod]) => ({ default: mod.Excalidraw })),
+  () => import("@excalidraw/excalidraw").then((mod) => ({ default: mod.Excalidraw })),
   { ssr: false, loading: () => <LoadingPlaceholder /> },
 );
 
