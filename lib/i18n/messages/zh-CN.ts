@@ -523,6 +523,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.overwrite": "覆盖写入",
     "i18n.reloadFile": "重新加载",
     "i18n.saveFailed": "保存失败",
+    "i18n.openAsText": "以文本方式打开",
+    "i18n.invalidExcalidrawScene": "该文件不是有效的 Excalidraw 场景。",
     "i18n.searchInFile": "文件内搜索",
     "i18n.matchCase": "区分大小写",
     "i18n.previousMatch": "上一个匹配",

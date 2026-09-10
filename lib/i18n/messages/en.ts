@@ -523,6 +523,8 @@ export const enLocale: LocalePlugin = {
     "i18n.overwrite": "Overwrite",
     "i18n.reloadFile": "Reload",
     "i18n.saveFailed": "Save failed",
+    "i18n.openAsText": "Open as text",
+    "i18n.invalidExcalidrawScene": "This file is not a valid Excalidraw scene.",
     "i18n.searchInFile": "Search in file",
     "i18n.matchCase": "Match case",
     "i18n.previousMatch": "Previous match",

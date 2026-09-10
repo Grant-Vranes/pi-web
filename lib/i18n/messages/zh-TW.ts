@@ -523,6 +523,8 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.overwrite": "覆蓋寫入",
     "i18n.reloadFile": "重新載入",
     "i18n.saveFailed": "儲存失敗",
+    "i18n.openAsText": "以文字方式開啟",
+    "i18n.invalidExcalidrawScene": "該檔案不是有效的 Excalidraw 場景。",
     "i18n.searchInFile": "檔案內搜尋",
     "i18n.matchCase": "區分大小寫",
     "i18n.previousMatch": "上一個符合",
