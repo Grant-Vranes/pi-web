@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
 import {
   Prism as SyntaxHighlighter,
@@ -22,16 +23,18 @@ import {
   getFileExt,
   isAudioPath,
   isDocumentPreviewPath,
+  isExcalidrawPath,
   isImagePath,
   isVideoPath,
 } from "@/lib/file-types";
-import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
+import { getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
+import { getFileApiUrl } from "@/lib/file-api";
 import { findMatches, replaceAll, replaceOne } from "@/lib/file-search";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -42,6 +45,20 @@ import {
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
 } from "@/lib/file-viewer-state";
+
+function FileViewerLoadingPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
+      {t("i18n.loading")}
+    </div>
+  );
+}
+
+const ExcalidrawViewer = dynamic(() => import("./ExcalidrawViewer"), {
+  ssr: false,
+  loading: () => <FileViewerLoadingPlaceholder />,
+});
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
 
@@ -217,21 +234,6 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
       </span>
     );
   });
-}
-
-function getFileApiUrl(
-  filePath: string,
-  type: "read" | "download" | "meta" | "preview" | "watch" | "write",
-  sourceSessionId?: string | null,
-  params: Record<string, string | number | undefined> = {},
-): string {
-  const encoded = encodeFilePathForApi(filePath);
-  const searchParams = new URLSearchParams({ type });
-  if (sourceSessionId) searchParams.set("sessionId", sourceSessionId);
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) searchParams.set(key, String(value));
-  }
-  return `/api/files/${encoded}?${searchParams.toString()}`;
 }
 
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
@@ -1102,6 +1104,11 @@ export function FileViewer({
   onStateChange,
   watchEnabled = true,
 }: Props) {
+  const [textFallback, setTextFallback] = useState(false);
+  useEffect(() => {
+    setTextFallback(false);
+  }, [filePath]);
+
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
   }
@@ -1113,6 +1120,17 @@ export function FileViewer({
   }
   if (isDocumentPreviewPath(filePath)) {
     return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
+  }
+  if (isExcalidrawPath(filePath) && !textFallback) {
+    return (
+      <ExcalidrawViewer
+        filePath={filePath}
+        cwd={cwd}
+        sourceSessionId={sourceSessionId}
+        watchEnabled={watchEnabled}
+        onFallbackToText={() => setTextFallback(true)}
+      />
+    );
   }
   return (
     <TextFileViewer

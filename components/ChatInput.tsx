@@ -2303,15 +2303,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 5,
+                  gap: 6,
                   minWidth: 0,
                   maxWidth: isMobile ? 160 : 220,
                   marginLeft: 4,
-                  padding: isMobile ? "8px 8px" : "8px 10px",
+                  padding: isMobile ? "8px 10px" : "8px 12px",
                   height: 32,
                   borderRadius: 9,
                   color: "var(--text-muted)",
                   fontSize: 12,
+                  // Same disabled treatment as the model selector's locked
+                  // state: the branch is read-only once the session started.
+                  opacity: 0.5,
+                  cursor: "not-allowed",
                 }}
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true">
@@ -2320,9 +2324,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <circle cx="6" cy="18" r="3" />
                   <path d="M18 9a9 9 0 0 1-9 9" />
                 </svg>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, fontFamily: "var(--font-mono)", color: "var(--text)" }}>
                   {currentBranch}
                 </span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
               </div>
             )}
           </div>

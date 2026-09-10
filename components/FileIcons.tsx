@@ -66,6 +66,30 @@ export function GenericFileIcon({ size = 14 }: IconProps) {
   return <CatppuccinIcon name="_file" size={size} />;
 }
 
+function ExcalidrawIcon({ size = 14 }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* Hand-drawn canvas frame */}
+      <path d="M5.2 4.1c4.4-.9 9.2-.7 13.6 1" />
+      <path d="M20.2 6.3c.8 4.3.6 8.7-.6 12.9" />
+      <path d="M17.5 20.3c-4.2.8-8.5.6-12.4-.9" />
+      <path d="M3.6 17.2c-.7-4.2-.4-8.5 1-12.4" />
+      {/* Pen stroke */}
+      <path d="M8.6 14.9c1.9.4 3.8.2 5.6-.6l4.3-2c.5-.3.3-.9-.3-.9-3.2.3-6.4 1-9.5 2.4-1 .5-.9 1.2-.1 1.1z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 const EXTENSION_ICONS: Record<string, CatppuccinIconName> = {
   ts: "typescript",
   tsx: "typescript-react",
@@ -121,6 +145,7 @@ export function getFileIcon(name: string, size = 14): React.ReactNode {
   if (specialIcon) return <CatppuccinIcon name={specialIcon} size={size} />;
 
   const ext = lower.split(".").pop() ?? "";
+  if (ext === "excalidraw") return <ExcalidrawIcon size={size} />;
   const icon = EXTENSION_ICONS[ext];
   return icon ? <CatppuccinIcon name={icon} size={size} /> : <GenericFileIcon size={size} />;
 }

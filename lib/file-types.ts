@@ -86,3 +86,7 @@ export function isVideoPath(filePath: string): boolean {
 export function isDocumentPreviewPath(filePath: string): boolean {
   return documentPreviewKind(filePath) !== null;
 }
+
+export function isExcalidrawPath(filePath: string): boolean {
+  return getFileExt(filePath) === "excalidraw";
+}
