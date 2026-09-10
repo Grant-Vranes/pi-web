@@ -302,6 +302,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.deleteProjectError": "Could not delete this project.",
     "sidebar.cancelRemove": "Cancel",
     "sidebar.rename": "Rename",
+    "sidebar.renameProject": "Rename project",
     "sidebar.delete": "Delete",
     "sidebar.deleteWithShiftClick": "Delete (Shift+click to delete without confirmation)",
     "sidebar.archive": "Archive",

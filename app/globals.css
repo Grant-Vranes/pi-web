@@ -2110,6 +2110,12 @@ span.token.table {
   margin-bottom: 7px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
+.project-rail-tooltip-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
 .project-rail-tooltip-name {
   font-weight: 600;
   font-size: 12px;
@@ -2117,6 +2123,48 @@ span.token.table {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.project-rail-tooltip-rename-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 90ms ease, background-color 90ms ease, color 90ms ease;
+}
+.project-rail-tooltip:hover .project-rail-tooltip-rename-btn,
+.project-rail-tooltip-rename-btn:focus-visible {
+  opacity: 1;
+}
+.project-rail-tooltip-rename-btn:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+.project-rail-tooltip-rename-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--text) 35%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  outline: none;
+}
+.project-rail-tooltip-rename-input:focus {
+  border-color: color-mix(in srgb, var(--text) 60%, transparent);
 }
 .project-rail-tooltip-path {
   font-family: var(--font-mono);

@@ -302,6 +302,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.deleteProjectError": "無法刪除該專案。",
     "sidebar.cancelRemove": "取消",
     "sidebar.rename": "重新命名",
+    "sidebar.renameProject": "重新命名專案",
     "sidebar.delete": "刪除",
     "sidebar.deleteWithShiftClick": "刪除（按住 Shift 點選可跳過確認）",
     "sidebar.archive": "封存",

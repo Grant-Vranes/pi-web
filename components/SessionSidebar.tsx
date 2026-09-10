@@ -9,9 +9,9 @@ import { loadCollapsedDayGroups, saveCollapsedDayGroups, hasCollapseBeenSeeded, 
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, mergeProjectLists, sessionsForProject, type ProjectSelection } from "@/lib/project-groups";
+import { loadProjectAliases, projectDisplayName, projectFolderName, setProjectAlias, type ProjectAliasMap } from "@/lib/project-alias";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { displayCwd } from "@/lib/cwd-display";
-import { getFileName } from "@/lib/file-paths";
 import { openInFileBrowser } from "@/lib/file-browser";
 import type { WorktreeEntry, WorktreeState } from "@/lib/worktree-types";
 import type { RunningRpcSessionDetail } from "@/lib/rpc-manager";
@@ -537,6 +537,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [runningSessionDetails, setRunningSessionDetails] = useState<RunningRpcSessionDetail[]>([]);
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const [projectRailHistory, setProjectRailHistory] = useState<ProjectSelection[]>(() => loadProjectRailHistory());
+  // Per-project display names ("rename project") from the rail tooltip.
+  // Read once on mount; updates go straight to localStorage (best-effort).
+  const [projectAliases, setProjectAliases] = useState<ProjectAliasMap>(() => loadProjectAliases());
+  const handleRenameProject = useCallback((project: ProjectSelection, name: string) => {
+    setProjectAlias(project.key, name);
+    setProjectAliases((previous) => {
+      const trimmed = name.trim();
+      if (trimmed && previous[project.key] === trimmed) return previous;
+      const next = { ...previous };
+      if (trimmed) next[project.key] = trimmed;
+      else delete next[project.key];
+      return next;
+    });
+  }, []);
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
   const previousSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -1113,8 +1127,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The dropdown renders the same shared list as the rail, with an optional
   // text filter on the displayed root.
   const showProjectFilter = railProjects.length > 8;
-  const visibleProjects = projectFilter.trim()
-    ? railProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
+  // Filter matches the display alias too, so a renamed project stays findable
+  // by its new name (the root path still matches as before).
+  const projectFilterText = projectFilter.trim().toLowerCase();
+  const visibleProjects = projectFilterText
+    ? railProjects.filter((project) => (
+        project.root.toLowerCase().includes(projectFilterText)
+        || (projectAliases[project.key] ?? "").toLowerCase().includes(projectFilterText)
+      ))
     : railProjects;
   const handleDeleteProject = useCallback(async (project: ProjectSelection): Promise<ProjectDeleteOutcome> => {
     let res: Response;
@@ -1297,12 +1317,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           }));
         }}
         onDeleteProject={handleDeleteProject}
+        projectAliases={projectAliases}
+        onRenameProject={handleRenameProject}
       />
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
       {/* Workspace module */}
       <div className="sidebar-workspace-section">
         <div className="sidebar-brand-row">
-          <PiWebTitle projectName={selectedProject ? getFileName(selectedProject.root) : null} />
+          <PiWebTitle projectName={selectedProject ? projectDisplayName(selectedProject.root, projectAliases[selectedProject.key]) : null} />
           <span className="sidebar-module-kicker">{t("sidebar.workspace")}</span>
         </div>
 
@@ -1443,7 +1465,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       </svg>
                     )}
                     {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
-                    <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                    {/* Renamed projects show their alias in place of the path;
+                    unchanged projects keep the full display path. */}
+                    <PathLabel
+                      text={projectAliases[project.key]?.trim() || displayCwd(project.root, homeDir)}
+                      style={{ flex: 1, fontWeight: projectAliases[project.key]?.trim() ? 600 : undefined }}
+                    />
                     {showProjectActivity(projectActivity.get(project.key), t)}
                   </button>
                 ))}
@@ -1979,6 +2006,8 @@ function ProjectRail({
   onAddProject,
   onReorder,
   onDeleteProject,
+  projectAliases,
+  onRenameProject,
 }: {
   projects: readonly ProjectSelection[];
   selectedProjectKey: string | null;
@@ -1991,6 +2020,8 @@ function ProjectRail({
   onAddProject: () => void;
   onReorder: (keys: string[]) => void;
   onDeleteProject?: (project: ProjectSelection) => Promise<ProjectDeleteOutcome>;
+  projectAliases: ProjectAliasMap;
+  onRenameProject: (project: ProjectSelection, name: string) => void;
 }) {
   const { t } = useI18n();
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -2043,7 +2074,7 @@ function ProjectRail({
         {projects.map((project) => {
           const active = project.key === selectedProjectKey;
           const state = activity.get(project.key);
-          const name = project.root.split(/[\\/]/).filter(Boolean).pop() || project.root;
+          const name = projectDisplayName(project.root, projectAliases[project.key]);
           const isDragging = draggingKey === project.key;
           const showTooltip = hoveredKey === project.key && !isDragging && !dropTarget;
           return (
@@ -2106,6 +2137,8 @@ function ProjectRail({
                   unreadSessionIds={unreadSessionIds}
                   anchorEl={hoveredEl}
                   onDeleteProject={onDeleteProject}
+                  displayName={name}
+                  onRenameProject={onRenameProject}
                   onMouseEnter={cancelScheduledClose}
                   onMouseLeave={scheduleTooltipClose}
                 />
@@ -2136,6 +2169,8 @@ function ProjectRailTooltip({
   unreadSessionIds,
   anchorEl,
   onDeleteProject,
+  displayName,
+  onRenameProject,
   onMouseEnter,
   onMouseLeave,
 }: {
@@ -2146,11 +2181,14 @@ function ProjectRailTooltip({
   unreadSessionIds: ReadonlySet<string>;
   anchorEl: HTMLElement | null | undefined;
   onDeleteProject?: (project: ProjectSelection) => Promise<ProjectDeleteOutcome>;
+  /** Alias-aware project name (matches the rail tile's monogram). */
+  displayName: string;
+  onRenameProject?: (project: ProjectSelection, name: string) => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
   const { t } = useI18n();
-  const name = project.root.split(/[\\/]/).filter(Boolean).pop() || project.root;
+  const name = displayName;
 
   // Sessions that belong to this project (by stable workspace key) and are
   // currently running. allSessions already carries branch + cwd from the
@@ -2187,6 +2225,31 @@ function ProjectRailTooltip({
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<"blocked-running" | "failed" | null>(null);
+
+  // Inline rename of the project's display name. `cancelledRef` guards the
+  // blur handler so Escape (cancel) never commits a half-typed name; blur and
+  // Enter both commit. Committing the folder's own name clears the alias so
+  // the storage never holds a redundant entry.
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const renameCancelledRef = useRef(false);
+  const startRename = useCallback(() => {
+    renameCancelledRef.current = false;
+    setRenameValue(name);
+    setRenaming(true);
+  }, [name]);
+  const commitRename = useCallback(() => {
+    if (!onRenameProject) return;
+    const trimmed = renameValue.trim();
+    onRenameProject(project, trimmed === projectFolderName(project.root) ? "" : trimmed);
+    setRenaming(false);
+  }, [onRenameProject, project, renameValue]);
+  // Focus + select the whole name once the input mounts, matching the
+  // session-row rename behavior.
+  const focusRenameInput = useCallback((el: HTMLInputElement | null) => {
+    el?.focus();
+    el?.select();
+  }, []);
   const busyCount = running.length;
   const projectSessionsCount = useMemo(() => {
     let count = 0;
@@ -2249,7 +2312,52 @@ function ProjectRailTooltip({
       onMouseLeave={onMouseLeave}
     >
       <div className="project-rail-tooltip-head">
-        <span className="project-rail-tooltip-name">{name}</span>
+        <div className="project-rail-tooltip-name-row">
+          {renaming ? (
+            <input
+              ref={focusRenameInput}
+              className="project-rail-tooltip-rename-input"
+              value={renameValue}
+              maxLength={80}
+              spellCheck={false}
+              autoComplete="off"
+              aria-label={t("sidebar.renameProject")}
+              onChange={(event) => setRenameValue(event.target.value)}
+              onBlur={() => {
+                if (renameCancelledRef.current) return;
+                commitRename();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitRename();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  renameCancelledRef.current = true;
+                  setRenaming(false);
+                }
+              }}
+            />
+          ) : (
+            <>
+              <span className="project-rail-tooltip-name" title={name}>{name}</span>
+              {onRenameProject ? (
+                <button
+                  type="button"
+                  className="project-rail-tooltip-rename-btn"
+                  title={t("sidebar.renameProject")}
+                  aria-label={t("sidebar.renameProject")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startRename();
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></svg>
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
         <span className="project-rail-tooltip-path">{displayCwd(project.root)}</span>
       </div>
       {running.length > 0 ? (

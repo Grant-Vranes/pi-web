@@ -18,6 +18,8 @@ import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAg
 import { useDragDrop } from "@/hooks/useDragDrop";
 import type { DropPayload } from "@/lib/dropped-paths";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useProjectAliases } from "@/hooks/useProjectAliases";
+import { projectDisplayName } from "@/lib/project-alias";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
@@ -867,6 +869,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
+  // The empty new-chat header shows the current project's (alias-aware) name
+  // next to the π mark instead of the static "Pi Web" brand. Identity comes
+  // from the same server-resolved project data the sidebar uses, so a
+  // renamed project reads consistently in both places.
+  const projectAliases = useProjectAliases();
+  const newChatProjectName = useMemo(() => {
+    if (!isEmptyNew) return null;
+    const root = worktreeState?.projectRoot ?? activeCwd;
+    if (!root) return null;
+    const key = worktreeState?.projectKey ?? root;
+    return projectDisplayName(root, projectAliases[key]);
+  }, [isEmptyNew, worktreeState, activeCwd, projectAliases]);
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -1438,7 +1452,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontFamily: "var(--font-mono)" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 7 : 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
                 <span style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
+                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={newChatProjectName ?? undefined}>{newChatProjectName ?? "Pi Web"}</span>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
