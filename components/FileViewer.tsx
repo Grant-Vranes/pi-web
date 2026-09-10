@@ -46,7 +46,19 @@ import {
   type FileViewerState,
 } from "@/lib/file-viewer-state";
 
-const ExcalidrawViewer = dynamic(() => import("./ExcalidrawViewer"), { ssr: false });
+function FileViewerLoadingPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
+      {t("i18n.loading")}
+    </div>
+  );
+}
+
+const ExcalidrawViewer = dynamic(() => import("./ExcalidrawViewer"), {
+  ssr: false,
+  loading: () => <FileViewerLoadingPlaceholder />,
+});
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
 

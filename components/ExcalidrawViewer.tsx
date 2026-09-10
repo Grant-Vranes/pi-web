@@ -6,24 +6,33 @@ import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { getFileApiUrl } from "@/lib/file-api";
-
-/** Element/file schemas are owned by Excalidraw; we only move them around. */
-type ExcalidrawElement = Record<string, unknown>;
-type BinaryFiles = Record<string, Record<string, unknown>>;
+import {
+  buildMergedScene,
+  fetchSceneText,
+  type BinaryFiles,
+  type ExcalidrawAppState,
+  type ExcalidrawElement,
+} from "@/lib/excalidraw-scene";
 
 interface SceneData {
   elements: ExcalidrawElement[];
-  appState: Record<string, unknown>;
+  appState: ExcalidrawAppState;
   files: BinaryFiles;
 }
-
-/** appState fields persisted back into the scene file (no runtime UI state). */
-const SAVED_APP_STATE_KEYS = ["viewBackgroundColor", "gridSize", "gridModeEnabled"] as const;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function LoadingPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
+      {t("i18n.loading")}
+    </div>
+  );
 }
 
 const Excalidraw = dynamic(
@@ -32,7 +41,7 @@ const Excalidraw = dynamic(
       import("@excalidraw/excalidraw"),
       import("@excalidraw/excalidraw/index.css"),
     ]).then(([mod]) => ({ default: mod.Excalidraw })),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: () => <LoadingPlaceholder /> },
 );
 
 interface Props {
@@ -44,8 +53,7 @@ interface Props {
   onFallbackToText: () => void;
 }
 
-type ReadResponse = {
-  content?: string;
+type MetaResponse = {
   mtimeMs?: number;
   size?: number;
   error?: string;
@@ -122,65 +130,65 @@ export default function ExcalidrawViewer({
   const originalJsonRef = useRef<Record<string, unknown> | null>(null);
   const baseMtimeMsRef = useRef(0);
   const elementsRef = useRef<ExcalidrawElement[] | null>(null);
-  const appStateRef = useRef<Record<string, unknown> | null>(null);
+  const appStateRef = useRef<ExcalidrawAppState | null>(null);
   const filesRef = useRef<BinaryFiles | null>(null);
   const sceneRequestRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
-  const loadScene = useCallback(() => {
+  const loadScene = useCallback(async () => {
     const requestId = ++sceneRequestRef.current;
-    fetch(getFileApiUrl(filePath, "read", sourceSessionId))
-      .then((r) => r.json())
-      .then((d: ReadResponse) => {
-        if (requestId !== sceneRequestRef.current) return;
-        if (d.error) {
-          setScene(null);
-          setError(d.error);
-          return;
-        }
-        try {
-          const parsed = JSON.parse(d.content ?? "") as Record<string, unknown>;
-          if (!Array.isArray(parsed.elements)) throw new Error(t("i18n.invalidExcalidrawScene"));
-          originalJsonRef.current = parsed;
-          baseMtimeMsRef.current = typeof d.mtimeMs === "number" ? d.mtimeMs : 0;
-          if (typeof d.size === "number") setSize(d.size);
-          setScene({
-            elements: parsed.elements as ExcalidrawElement[],
-            appState: (parsed.appState ?? {}) as Record<string, unknown>,
-            files: (parsed.files ?? {}) as BinaryFiles,
-          });
-          elementsRef.current = null;
-          appStateRef.current = null;
-          filesRef.current = null;
-          setDirty(false);
-          setError(null);
-          setSaveConflict(false);
-          setSaveError(null);
-          setReloadKey((k) => k + 1);
-        } catch (parseError) {
-          setScene(null);
-          if (parseError instanceof Error && parseError.message === t("i18n.invalidExcalidrawScene")) {
-            setError(parseError.message);
-          } else {
-            setError(t("i18n.invalidExcalidrawScene"));
-          }
-        }
-      })
-      .catch((e) => {
-        if (requestId === sceneRequestRef.current) {
-          setScene(null);
-          setError(String(e));
-        }
+    try {
+      const content = await fetchSceneText(fetch, (offset) => (
+        getFileApiUrl(filePath, "read", sourceSessionId, { offset })
+      ));
+      if (requestId !== sceneRequestRef.current) return;
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(content) as Record<string, unknown>;
+      } catch {
+        throw new Error(t("i18n.invalidExcalidrawScene"));
+      }
+      if (!Array.isArray(parsed.elements)) throw new Error(t("i18n.invalidExcalidrawScene"));
+
+      const meta = await fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
+        .then((r) => r.json() as Promise<MetaResponse>)
+        .catch(() => null);
+      if (requestId !== sceneRequestRef.current) return;
+
+      originalJsonRef.current = parsed;
+      baseMtimeMsRef.current = typeof meta?.mtimeMs === "number" ? meta.mtimeMs : 0;
+      if (typeof meta?.size === "number") setSize(meta.size);
+      setScene({
+        elements: parsed.elements as ExcalidrawElement[],
+        appState: (parsed.appState ?? {}) as ExcalidrawAppState,
+        files: (parsed.files ?? {}) as BinaryFiles,
       });
+      elementsRef.current = null;
+      appStateRef.current = null;
+      filesRef.current = null;
+      setDirty(false);
+      setError(null);
+      setSaveConflict(false);
+      setSaveError(null);
+      setReloadKey((k) => k + 1);
+    } catch (loadError) {
+      if (requestId === sceneRequestRef.current) {
+        setScene(null);
+        setError(loadError instanceof Error ? loadError.message : String(loadError));
+      }
+    }
   }, [filePath, sourceSessionId, t]);
 
   useEffect(() => {
     setScene(null);
+    setSize(null);
+    baseMtimeMsRef.current = 0;
     setMode("view");
     setError(null);
-    loadScene();
+    void loadScene();
   }, [filePath, sourceSessionId, loadScene]);
 
   // Live watch: identical pattern to ImageViewer. While editing, an external
@@ -198,11 +206,11 @@ export default function ExcalidrawViewer({
     es.addEventListener("connected", () => setWatching(true));
     es.addEventListener("change", () => {
       if (modeRef.current === "view") {
-        loadScene();
+        void loadScene();
       } else {
         fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
           .then((r) => r.json())
-          .then((d: { size?: number }) => {
+          .then((d: MetaResponse) => {
             if (typeof d.size === "number") setSize(d.size);
           })
           .catch(() => { /* ignore */ });
@@ -219,6 +227,7 @@ export default function ExcalidrawViewer({
   }, [filePath, sourceSessionId, watchEnabled, loadScene]);
 
   const enterEdit = useCallback(() => {
+    sceneRequestRef.current += 1;
     setSaveConflict(false);
     setSaveError(null);
     setMode("edit");
@@ -230,7 +239,7 @@ export default function ExcalidrawViewer({
     setSaveError(null);
     setMode("view");
     setDirty(false);
-    if (dirty) loadScene();
+    void loadScene();
   }, [dirty, loadScene, t]);
 
   const saveScene = useCallback(async (options: { force?: boolean } = {}) => {
@@ -239,17 +248,12 @@ export default function ExcalidrawViewer({
     setSaveError(null);
     try {
       const original = originalJsonRef.current ?? {};
-      const savedAppState: Record<string, unknown> = {};
-      const liveAppState = appStateRef.current;
-      for (const key of SAVED_APP_STATE_KEYS) {
-        if (liveAppState && key in liveAppState) savedAppState[key] = liveAppState[key];
-      }
-      const merged: Record<string, unknown> = {
-        ...original,
-        elements: elementsRef.current ?? scene.elements,
-        appState: savedAppState,
-        files: filesRef.current ?? scene.files,
-      };
+      const merged = buildMergedScene(
+        original,
+        elementsRef.current ?? scene.elements,
+        appStateRef.current ?? scene.appState,
+        filesRef.current ?? scene.files,
+      );
       const response = await fetch(getFileApiUrl(filePath, "write", sourceSessionId), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -274,7 +278,7 @@ export default function ExcalidrawViewer({
       originalJsonRef.current = merged;
       setScene({
         elements: merged.elements as ExcalidrawElement[],
-        appState: merged.appState as Record<string, unknown>,
+        appState: merged.appState as ExcalidrawAppState,
         files: merged.files as BinaryFiles,
       });
       setSaveConflict(false);
@@ -379,18 +383,37 @@ export default function ExcalidrawViewer({
                 onClick={() => {
                   setSaveConflict(false);
                   setMode("view");
-                  loadScene();
+                  void loadScene();
                 }}
               >
                 {t("i18n.cancel")}
               </button>
             </div>
           </div>
-        ) : saveError ? (
-          <div style={{ padding: "8px 16px", color: "#f87171", fontSize: 12 }}>{saveError}</div>
         ) : null}
+        {!scene && !error && !saveConflict && <LoadingPlaceholder />}
+        {saveError && !error && !saveConflict && (
+          <div
+            style={{
+              position: "absolute",
+              top: 8,
+              left: 16,
+              right: 16,
+              zIndex: 2,
+              padding: "8px 12px",
+              border: "1px solid rgba(248,113,113,0.45)",
+              borderRadius: 6,
+              background: "var(--bg-panel)",
+              color: "#f87171",
+              fontSize: 12,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.16)",
+            }}
+          >
+            {saveError}
+          </div>
+        )}
         {scene && !error && !saveConflict && (
-          <div style={{ position: "absolute", inset: 0 }}>
+          <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
             <Excalidraw
               key={`${filePath}-${reloadKey}`}
               initialData={{
@@ -402,7 +425,7 @@ export default function ExcalidrawViewer({
               theme={isDark ? "dark" : "light"}
               onChange={(elements, appState, files) => {
                 elementsRef.current = elements as unknown as ExcalidrawElement[];
-                appStateRef.current = appState as unknown as Record<string, unknown>;
+                appStateRef.current = appState as unknown as ExcalidrawAppState;
                 filesRef.current = files as unknown as BinaryFiles;
                 if (mode === "edit") setDirty(true);
               }}

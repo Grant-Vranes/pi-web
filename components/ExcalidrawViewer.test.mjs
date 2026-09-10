@@ -10,25 +10,31 @@ test("loads the Excalidraw canvas lazily, client-only", () => {
   assert.match(source, /\{\s*ssr:\s*false/);
 });
 
+test("shows loading placeholders for both lazy boundaries", () => {
+  assert.match(source, /function LoadingPlaceholder\(\)/);
+  assert.match(source, /t\("i18n\.loading"\)/);
+  assert.match(source, /loading:\s*\(\) => <LoadingPlaceholder \/>/);
+  assert.match(fileViewerSource, /function FileViewerLoadingPlaceholder\(\)/);
+  assert.match(fileViewerSource, /loading:\s*\(\) => <FileViewerLoadingPlaceholder \/>/);
+});
+
 test("renders view-only canvas in view mode", () => {
   assert.match(source, /viewModeEnabled=\{mode === "view"\}/);
 });
 
-test("persists only scene fields and preserves unknown top-level keys", () => {
-  assert.match(source, /\.\.\.original/);
-  assert.match(source, /SAVED_APP_STATE_KEYS\s*=\s*\[["'`]?viewBackgroundColor/);
+test("persists only scene fields via shared merge helper", () => {
+  assert.match(source, /buildMergedScene\(/);
   assert.doesNotMatch(source, /type:\s*"excalidraw"/);
   assert.doesNotMatch(source, /version:\s*typeof original\.version/);
-  assert.match(
-    source,
-    /const merged:[\s\S]*?= \{[\s\S]*?\.\.\.original,[\s\S]*?elements:[\s\S]*?appState:[\s\S]*?files:[\s\S]*?\};/,
-  );
+});
+
+test("loads scene text through the chunked read helper", () => {
+  assert.match(source, /fetchSceneText\(fetch, \(offset\) =>/);
+  assert.match(source, /getFileApiUrl\(filePath, "read", sourceSessionId, \{ offset \}\)/);
 });
 
 test("clears stale scene on load failures and hides the canvas while an error is shown", () => {
-  assert.match(source, /if \(d\.error\) \{[\s\S]*?setScene\(null\);[\s\S]*?setError\(d\.error\);/);
-  assert.match(source, /catch \(parseError\) \{[\s\S]*?setScene\(null\);/);
-  assert.match(source, /\.catch\(\(e\) => \{[\s\S]*?setScene\(null\);[\s\S]*?setError\(String\(e\)\);/);
+  assert.match(source, /catch \(loadError\) \{[\s\S]*?setScene\(null\);[\s\S]*?setError\(loadError instanceof Error \? loadError\.message : String\(loadError\)\);/);
   assert.match(source, /\{scene && !error && !saveConflict && \(/);
 });
 
@@ -38,12 +44,24 @@ test("save sends baseMtimeMs and handles 409 conflicts", () => {
   assert.match(source, /setSaveConflict\(true\)/);
 });
 
-test("asks before discarding unsaved edits on exit", () => {
+test("asks before discarding unsaved edits and always reloads after confirmed exit", () => {
   assert.match(source, /window\.confirm\(t\("i18n\.confirmDiscard"\)\)/);
+  assert.match(source, /const exitEdit = useCallback[\s\S]*?setMode\("view"\);[\s\S]*?setDirty\(false\);[\s\S]*?void loadScene\(\);/);
+  assert.doesNotMatch(source, /if \(dirty\) loadScene\(\)/);
+});
+
+test("entering edit mode invalidates in-flight scene reads", () => {
+  assert.match(source, /const enterEdit = useCallback[\s\S]*?sceneRequestRef\.current \+= 1;[\s\S]*?setMode\("edit"\);/);
 });
 
 test("external file changes reload the scene only outside edit mode", () => {
-  assert.match(source, /modeRef\.current === "view"[\s\S]*?loadScene\(\)/);
+  assert.match(source, /modeRef\.current === "view"[\s\S]*?void loadScene\(\)/);
+});
+
+test("save errors render above the canvas without unmounting it", () => {
+  assert.match(source, /saveError && !error && !saveConflict/);
+  assert.match(source, /zIndex:\s*2/);
+  assert.match(source, /position:\s*"absolute", inset: 0, zIndex: 1/);
 });
 
 test("offers a text-viewer fallback when the scene cannot be parsed", () => {
