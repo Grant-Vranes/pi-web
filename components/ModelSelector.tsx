@@ -136,6 +136,7 @@ export function ModelSelector({
         color: "var(--text-muted)",
         cursor: locked ? "not-allowed" : "pointer",
         fontSize: 12,
+        lineHeight: 1.35,
         opacity: locked ? 0.5 : 1,
         transition: "background 0.12s, color 0.12s",
       };
@@ -206,12 +207,15 @@ export function ModelSelector({
             <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
           </svg>
         )}
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentName}</span>
-        {variant === "field" && (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        )}
+        {/* Label matches the worktree switcher trigger: mono font at full
+            text color, so both chat-bar pickers read identically. */}
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", color: "var(--text)" }}>{currentName}</span>
+        {/* Dropdown affordance shared by the toolbar and field variants so
+            every chat-bar picker reads as a trigger. Matches the worktree
+            switcher's chevron: same glyph, and it flips while open. */}
+        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
       </button>
 
       {open && anchorRect && (() => {

@@ -215,14 +215,22 @@ export function WorktreeSwitcher({ worktreeState, currentWorktreePath, homeDir, 
         title={triggerTitle}
         aria-label={t("sidebar.switchWorktree")}
         aria-expanded={dropdownOpen}
+        onMouseEnter={(e) => {
+          if (compact) e.currentTarget.style.background = "var(--bg-hover)";
+        }}
+        onMouseLeave={(e) => {
+          if (compact) e.currentTarget.style.background = dropdownOpen ? "var(--bg-selected)" : "none";
+        }}
         style={{
           display: "flex",
           alignItems: "center",
           gap: compact ? 4 : 6,
           height: compact ? 32 : 29,
-          padding: compact ? "0 8px" : "0 10px",
-          background: dropdownOpen ? "var(--bg-selected)" : "var(--bg-hover)",
-          border: "1px solid var(--border)",
+          padding: compact ? "0 10px" : "0 10px",
+          // Compact mode is a ghost trigger that matches the chat-bar model
+          // selector: no bordered box, just a subtle hover/open background.
+          background: dropdownOpen ? "var(--bg-selected)" : "none",
+          border: "none",
           borderRadius: compact ? 9 : 7,
           cursor: "pointer",
           fontSize: 12,
