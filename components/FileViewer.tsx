@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
 import {
   Prism as SyntaxHighlighter,
@@ -22,6 +23,7 @@ import {
   getFileExt,
   isAudioPath,
   isDocumentPreviewPath,
+  isExcalidrawPath,
   isImagePath,
   isVideoPath,
 } from "@/lib/file-types";
@@ -43,6 +45,8 @@ import {
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
 } from "@/lib/file-viewer-state";
+
+const ExcalidrawViewer = dynamic(() => import("./ExcalidrawViewer"), { ssr: false });
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
 
@@ -1088,6 +1092,11 @@ export function FileViewer({
   onStateChange,
   watchEnabled = true,
 }: Props) {
+  const [textFallback, setTextFallback] = useState(false);
+  useEffect(() => {
+    setTextFallback(false);
+  }, [filePath]);
+
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
   }
@@ -1099,6 +1108,17 @@ export function FileViewer({
   }
   if (isDocumentPreviewPath(filePath)) {
     return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
+  }
+  if (isExcalidrawPath(filePath) && !textFallback) {
+    return (
+      <ExcalidrawViewer
+        filePath={filePath}
+        cwd={cwd}
+        sourceSessionId={sourceSessionId}
+        watchEnabled={watchEnabled}
+        onFallbackToText={() => setTextFallback(true)}
+      />
+    );
   }
   return (
     <TextFileViewer
