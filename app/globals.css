@@ -2139,12 +2139,10 @@ span.token.table {
   background: none;
   color: var(--text-muted);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 90ms ease, background-color 90ms ease, color 90ms ease;
+  transition: background-color 90ms ease, color 90ms ease;
 }
-.project-rail-tooltip:hover .project-rail-tooltip-rename-btn,
 .project-rail-tooltip-rename-btn:focus-visible {
-  opacity: 1;
+  outline: 1px solid var(--accent);
 }
 .project-rail-tooltip-rename-btn:hover {
   background: color-mix(in srgb, var(--text) 10%, transparent);
