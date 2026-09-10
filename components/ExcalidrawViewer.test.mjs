@@ -17,6 +17,19 @@ test("renders view-only canvas in view mode", () => {
 test("persists only scene fields and preserves unknown top-level keys", () => {
   assert.match(source, /\.\.\.original/);
   assert.match(source, /SAVED_APP_STATE_KEYS\s*=\s*\[["'`]?viewBackgroundColor/);
+  assert.doesNotMatch(source, /type:\s*"excalidraw"/);
+  assert.doesNotMatch(source, /version:\s*typeof original\.version/);
+  assert.match(
+    source,
+    /const merged:[\s\S]*?= \{[\s\S]*?\.\.\.original,[\s\S]*?elements:[\s\S]*?appState:[\s\S]*?files:[\s\S]*?\};/,
+  );
+});
+
+test("clears stale scene on load failures and hides the canvas while an error is shown", () => {
+  assert.match(source, /if \(d\.error\) \{[\s\S]*?setScene\(null\);[\s\S]*?setError\(d\.error\);/);
+  assert.match(source, /catch \(parseError\) \{[\s\S]*?setScene\(null\);/);
+  assert.match(source, /\.catch\(\(e\) => \{[\s\S]*?setScene\(null\);[\s\S]*?setError\(String\(e\)\);/);
+  assert.match(source, /\{scene && !error && !saveConflict && \(/);
 });
 
 test("save sends baseMtimeMs and handles 409 conflicts", () => {

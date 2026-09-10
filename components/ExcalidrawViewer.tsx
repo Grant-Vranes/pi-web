@@ -136,6 +136,7 @@ export default function ExcalidrawViewer({
       .then((d: ReadResponse) => {
         if (requestId !== sceneRequestRef.current) return;
         if (d.error) {
+          setScene(null);
           setError(d.error);
           return;
         }
@@ -159,6 +160,7 @@ export default function ExcalidrawViewer({
           setSaveError(null);
           setReloadKey((k) => k + 1);
         } catch (parseError) {
+          setScene(null);
           if (parseError instanceof Error && parseError.message === t("i18n.invalidExcalidrawScene")) {
             setError(parseError.message);
           } else {
@@ -167,7 +169,10 @@ export default function ExcalidrawViewer({
         }
       })
       .catch((e) => {
-        if (requestId === sceneRequestRef.current) setError(String(e));
+        if (requestId === sceneRequestRef.current) {
+          setScene(null);
+          setError(String(e));
+        }
       });
   }, [filePath, sourceSessionId, t]);
 
@@ -241,8 +246,6 @@ export default function ExcalidrawViewer({
       }
       const merged: Record<string, unknown> = {
         ...original,
-        type: "excalidraw",
-        version: typeof original.version === "number" ? original.version : 2,
         elements: elementsRef.current ?? scene.elements,
         appState: savedAppState,
         files: filesRef.current ?? scene.files,
@@ -386,7 +389,7 @@ export default function ExcalidrawViewer({
         ) : saveError ? (
           <div style={{ padding: "8px 16px", color: "#f87171", fontSize: 12 }}>{saveError}</div>
         ) : null}
-        {scene && !saveConflict && (
+        {scene && !error && !saveConflict && (
           <div style={{ position: "absolute", inset: 0 }}>
             <Excalidraw
               key={`${filePath}-${reloadKey}`}
