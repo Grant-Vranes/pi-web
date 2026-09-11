@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type CSSProperties } from "react";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileName, getRelativeFilePath } from "@/lib/file-paths";
@@ -9,6 +10,7 @@ import { getFileApiUrl } from "@/lib/file-api";
 import {
   buildMergedScene,
   fetchSceneText,
+  stripViewportState,
   type BinaryFiles,
   type ExcalidrawAppState,
   type ExcalidrawElement,
@@ -133,8 +135,20 @@ export default function ExcalidrawViewer({
   const filesRef = useRef<BinaryFiles | null>(null);
   const sceneRequestRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
+  const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
+
+  // The Excalidraw component is keyed per (file, reload), so this fires once
+  // per fresh mount. Wait one frame so initialData has been applied, then fit
+  // the viewport to the drawing — saved scenes can carry stale scroll/zoom
+  // state that leaves the content off-screen.
+  const handleExcalidrawApi = useCallback((api: ExcalidrawImperativeAPI) => {
+    excalidrawApiRef.current = api;
+    requestAnimationFrame(() => {
+      api.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.8 });
+    });
+  }, []);
 
   const loadScene = useCallback(async () => {
     const requestId = ++sceneRequestRef.current;
@@ -413,9 +427,10 @@ export default function ExcalidrawViewer({
               key={`${filePath}-${reloadKey}`}
               initialData={{
                 elements: scene.elements,
-                appState: scene.appState,
+                appState: stripViewportState(scene.appState),
                 files: scene.files,
               } as unknown as NonNullable<ComponentProps<typeof Excalidraw>["initialData"]>}
+              excalidrawAPI={handleExcalidrawApi}
               viewModeEnabled={mode === "view"}
               theme={isDark ? "dark" : "light"}
               onChange={(elements, appState, files) => {

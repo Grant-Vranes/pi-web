@@ -27,6 +27,20 @@ const MAX_SCENE_RESTARTS = 3;
 /** appState fields persisted back into the scene file (no runtime UI state). */
 export const SAVED_APP_STATE_KEYS = ["viewBackgroundColor", "gridSize", "gridModeEnabled"] as const;
 
+/** appState fields describing the live viewport; never restored from disk. */
+export const VIEWPORT_APP_STATE_KEYS = ["scrollX", "scrollY", "zoom", "offsetLeft", "offsetTop"] as const;
+
+/**
+ * Returns a copy of appState without viewport fields. Saved files can carry
+ * stale scroll/zoom values that put the canvas content off-screen, so the
+ * viewer always fits the viewport to the content instead.
+ */
+export function stripViewportState(appState: ExcalidrawAppState): ExcalidrawAppState {
+  const next = { ...appState };
+  for (const key of VIEWPORT_APP_STATE_KEYS) delete next[key];
+  return next;
+}
+
 function readChunkMetadata(chunk: SceneChunk): { size: number; mtimeMs: number } {
   if (typeof chunk.size !== "number" || typeof chunk.mtimeMs !== "number") {
     throw new Error("Missing Excalidraw scene read metadata");

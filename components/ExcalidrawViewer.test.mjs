@@ -22,6 +22,13 @@ test("renders view-only canvas in view mode", () => {
   assert.match(source, /viewModeEnabled=\{mode === "view"\}/);
 });
 
+test("strips saved viewport state and scrolls the canvas back to content", () => {
+  assert.match(source, /appState: stripViewportState\(scene\.appState\)/);
+  assert.match(source, /excalidrawAPI=\{handleExcalidrawApi\}/);
+  assert.match(source, /api\.scrollToContent\(\s*undefined,\s*\{ fitToViewport: true/);
+  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?scrollToContent/s);
+});
+
 test("disables the edit button until the scene is loaded", () => {
   assert.match(source, /<button type="button" style=\{ICON_BUTTON_STYLE\} disabled=\{!scene\} onClick=\{enterEdit\}>/);
 });
