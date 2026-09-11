@@ -138,6 +138,8 @@ test("fresh sessions use the preference while persisted and live sessions restor
   assert.match(source, /d\.toolNames !== undefined \? getPresetFromToolNames\(d\.toolNames\) : "default"/);
   assert.match(changeSource, /setPreferredToolPreset\(preset\)/);
   assert.match(changeSource, /\(sid, \{ type: "set_tools", toolNames \}\)/);
+  assert.match(changeSource, /activeSessionId !== sid \|\| result\?\.recreated/);
+  assert.match(changeSource, /result\?\.recreated[\s\S]*?maintainEventsConnected\(activeSessionId\)/);
   assert.match(changeSource, /sessionIdRef\.current = activeSessionId/);
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
@@ -318,13 +320,19 @@ test("uses server pagination state instead of guessing from rendered rows", () =
   assert.doesNotMatch(chatWindowSource, /rendered\.length >= visibleCount/);
 });
 
-test("connects a selected session when another browser reports it running", () => {
+test("keeps the selected session warm while idle and renews its lease", () => {
   assert.match(source, /sessionRunning\?: boolean/);
   assert.match(
     source,
-    /if \(!session\?\.id \|\| !sessionRunning\) return;[\s\S]*?maintainEventsConnected\(session\.id\)/,
+    /const sid = session\?\.id;[\s\S]*?if \(!sid\) return;[\s\S]*?maintainEventsConnected\(sid\)/,
   );
-  assert.match(source, /maintainEventsConnected\(session\.id\)/);
+  assert.match(source, /sessionPropIdRef\.current === sid/);
+  assert.match(source, /SESSION_LEASE_RENEW_INTERVAL_MS = 30_000/);
+  assert.match(source, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}\/lease`/);
+  assert.match(source, /setInterval\(\(\) => void renewLease\(\), SESSION_LEASE_RENEW_INTERVAL_MS\)/);
+  assert.match(source, /result\.renewed === 0[\s\S]*?closeEvents\(\)[\s\S]*?maintainEventsConnected\(sid\)/);
+  assert.match(source, /if \(sessionPropIdRef\.current === sid\) \{[\s\S]*?cancelEventStreamGrace\(\);[\s\S]*?return;/);
+  assert.match(source, /maintainEventsConnected\(sid\)/);
   assert.doesNotMatch(source, /void connectEvents\(/);
   assert.match(chatWindowSource, /sessionRunning\?: boolean/);
   assert.match(chatWindowSource, /session, sessionRunning, newSessionCwd/);

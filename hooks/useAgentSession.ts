@@ -171,6 +171,7 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
+const SESSION_LEASE_RENEW_INTERVAL_MS = 30_000;
 // Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
@@ -275,7 +276,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   } = opts;
 
@@ -333,7 +334,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventStreamGraceActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
-  const sessionRunningRef = useRef(Boolean(sessionRunning));
   const agentRunningRef = useRef(false);
   const sdkAgentActiveRef = useRef(false);
   const rpcPromptPendingRef = useRef(false);
@@ -360,7 +360,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const sessionHookMountedRef = useRef(true);
 
   sessionPropIdRef.current = session?.id ?? null;
-  sessionRunningRef.current = Boolean(sessionRunning);
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
@@ -372,7 +371,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         && (
           agentRunningRef.current
           || eventStreamGraceActiveRef.current
-          || (sessionPropIdRef.current === sid && sessionRunningRef.current)
+          || sessionPropIdRef.current === sid
         )
       ),
       readinessTimeoutMs: EVENT_STREAM_READY_TIMEOUT_MS,
@@ -729,24 +728,60 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current!.maintain(sid);
   }, []);
 
-  // A different browser can start this session after it was opened here.
-  // The sidebar's lightweight running-state poll gives us a cheap signal to
-  // attach to the existing SSE stream without adding another synchronization
-  // protocol to the chat.
+  // Keep the selected session warm even while its agent is idle. The SSE lease
+  // is renewed separately below and expires if the browser disappears.
   useEffect(() => {
-    if (!session?.id || !sessionRunning) return;
-    maintainEventsConnected(session.id);
+    const sid = session?.id;
+    if (!sid) return;
+    maintainEventsConnected(sid);
     return () => {
-      if (
-        sessionIdRef.current === session.id
-        && !agentRunningRef.current
-        && !eventStreamGraceActiveRef.current
-        && (sessionPropIdRef.current !== session.id || !sessionRunningRef.current)
-      ) {
-        eventConnectionRef.current?.close();
+      if (sessionIdRef.current === sid) eventConnectionRef.current?.close();
+    };
+  }, [maintainEventsConnected, session?.id]);
+
+  useEffect(() => {
+    const sid = session?.id;
+    if (!sid) return;
+    let disposed = false;
+    let renewing = false;
+
+    const renewLease = async () => {
+      if (disposed || renewing) return;
+      renewing = true;
+      try {
+        const response = await fetch(`/api/agent/${encodeURIComponent(sid)}/lease`, {
+          method: "POST",
+          cache: "no-store",
+        });
+        if (!response.ok || disposed) return;
+        const result = await response.json() as { renewed?: number };
+        if (
+          !disposed
+          && result.renewed === 0
+          && sessionIdRef.current === sid
+          && sessionPropIdRef.current === sid
+        ) {
+          closeEvents();
+          maintainEventsConnected(sid);
+        }
+      } catch {
+        // Retry on the next interval; the SSE connection remains the primary path.
+      } finally {
+        renewing = false;
       }
     };
-  }, [maintainEventsConnected, session?.id, sessionRunning]);
+
+    const interval = setInterval(() => void renewLease(), SESSION_LEASE_RENEW_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void renewLease();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [closeEvents, maintainEventsConnected, session?.id]);
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
@@ -865,6 +900,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [onAgentEnd]);
 
   const scheduleEventStreamClose = useCallback((sid: string) => {
+    if (sessionPropIdRef.current === sid) {
+      cancelEventStreamGrace();
+      return;
+    }
     cancelEventStreamGrace();
     eventStreamGraceActiveRef.current = true;
     const generation = eventStreamGraceGenerationRef.current;
@@ -1861,10 +1900,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const result = await sendAgentCommand<{ sessionId?: string; recreated?: boolean }>(sid, { type: "set_tools", toolNames });
       const activeSessionId = result?.sessionId ?? sid;
-      if (activeSessionId !== sid) {
+      if (activeSessionId !== sid || result?.recreated) {
         cancelEventStreamGrace();
         closeEvents();
         sessionIdRef.current = activeSessionId;
+        if (result?.recreated && sessionPropIdRef.current === activeSessionId) {
+          maintainEventsConnected(activeSessionId);
+        }
       }
       setSlashCommands([]);
       setExtensionStatuses([]);
@@ -1880,7 +1922,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
-  }, [cancelEventStreamGrace, closeEvents, loadTools, setToolPresetState, syncLiveModel]);
+  }, [cancelEventStreamGrace, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
 
   const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
     const container = scrollContainerRef.current;
@@ -1962,7 +2004,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "start" });
-            void maintainEventsConnected(session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               void waitForPromptSettlement(session.id);
             }
