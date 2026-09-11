@@ -61,6 +61,8 @@ export const enLocale: LocalePlugin = {
     "agents.builtInDescription": "Provides Pi Web's integrated Agent tools and disables a conflicting pi-subagents extension.",
     "agents.reloadRequired": "Reload the current session to apply this change.",
     "agents.reloadSession": "Reload session",
+    "agents.maxConcurrent": "Concurrent sub-agents",
+    "agents.maxConcurrentDescription": "Maximum prompts running at once per parent session.",
     "agents.reloading": "Reloading...",
     "agents.loading": "Loading sub-agents...",
     "agents.new": "New sub-agent",

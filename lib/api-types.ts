@@ -7,6 +7,7 @@ export interface SubagentProfilesResponse {
 
 export interface SubagentSettingsResponse {
   enabled: boolean;
+  maxConcurrent: number;
 }
 
 export interface ShellToolSettingsResponse {

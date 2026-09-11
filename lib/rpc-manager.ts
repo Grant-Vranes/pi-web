@@ -2119,11 +2119,13 @@ export async function startRpcSession(
       inner.setActiveToolsByName(withExtensionTools(inner, selectedToolNames ?? inner.getActiveToolNames()));
     }
 
-    const exactSystemPrompt = chatOnly
-      ? subagentResources
-        ? () => subagentResources.appendSystemPrompt[0] ?? ""
-        : () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
-      : undefined;
+    const exactSystemPrompt = subagentResources?.exactSystemPrompt !== undefined
+      ? () => subagentResources.exactSystemPrompt!
+      : chatOnly
+        ? subagentResources
+          ? () => subagentResources.appendSystemPrompt[0] ?? ""
+          : () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
+        : undefined;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
