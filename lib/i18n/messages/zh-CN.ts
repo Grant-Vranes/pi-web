@@ -55,6 +55,8 @@ export const zhCNLocale: LocalePlugin = {
     "agents.builtInDescription": "提供 Pi Web 集成的 Agent 工具，并停用发生冲突的 pi-subagents 扩展。",
     "agents.reloadRequired": "重新加载当前会话后生效。",
     "agents.reloadSession": "重新加载会话",
+    "agents.maxConcurrent": "并发子代理数",
+    "agents.maxConcurrentDescription": "每个父会话同时运行的最大任务数。",
     "agents.reloading": "正在重新加载...",
     "agents.loading": "正在加载子代理...",
     "agents.new": "新建子代理",

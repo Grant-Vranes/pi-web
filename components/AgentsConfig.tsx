@@ -163,6 +163,7 @@ export function AgentsConfig({
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [builtInEnabled, setBuiltInEnabled] = useState(false);
+  const [maxConcurrent, setMaxConcurrent] = useState(10);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -226,6 +227,7 @@ export function AgentsConfig({
           throw new Error(data.error ?? `HTTP ${response.status}`);
         }
         setBuiltInEnabled(data.enabled);
+        if (typeof data.maxConcurrent === "number") setMaxConcurrent(data.maxConcurrent);
       } catch (cause) {
         if (controller.signal.aborted) return;
         setSettingsError(cause instanceof Error ? cause.message : String(cause));
@@ -410,6 +412,23 @@ export function AgentsConfig({
     }
   };
 
+  const updateMaxConcurrent = async (value: number) => {
+    setMaxConcurrent(value);
+    setSettingsError(null);
+    try {
+      const response = await fetch("/api/subagents/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxConcurrent: value }),
+      });
+      const data = await response.json() as Partial<SubagentSettingsResponse> & { error?: string };
+      if (!response.ok || data.error || typeof data.maxConcurrent !== "number") throw new Error(data.error ?? `HTTP ${response.status}`);
+      setMaxConcurrent(data.maxConcurrent);
+    } catch (cause) {
+      setSettingsError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
   const reloadSession = async () => {
     if (!sessionId) return;
     setReloading(true);
@@ -447,6 +466,23 @@ export function AgentsConfig({
             onChange={(enabled) => void toggleBuiltInSubagents(enabled)}
           />
         </div>
+      </div>
+      <div className="agents-feature-setting">
+        <div className="agents-feature-copy">
+          <strong>{t("agents.maxConcurrent")}</strong>
+          <span>{t("agents.maxConcurrentDescription")}</span>
+        </div>
+        <input
+          aria-label={t("agents.maxConcurrent")}
+          type="number"
+          min={1}
+          max={32}
+          value={maxConcurrent}
+          disabled={settingsLoading || settingsSaving}
+          onChange={(event) => setMaxConcurrent(Number(event.target.value))}
+          onBlur={() => void updateMaxConcurrent(maxConcurrent)}
+          style={{ ...inputStyle, width: 76 }}
+        />
       </div>
       <ConfigSplitView>
         <ConfigSidebar>
