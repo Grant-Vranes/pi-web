@@ -460,6 +460,19 @@ export function AgentsConfig({
               {reloading ? t("agents.reloading") : t("agents.reloadSession")}
             </ConfigButton>
           )}
+          <label className="agents-concurrency-control" title={t("agents.maxConcurrentDescription")}>
+            <span>{t("agents.maxConcurrent")}</span>
+            <input
+              aria-label={t("agents.maxConcurrent")}
+              type="number"
+              min={1}
+              max={32}
+              value={maxConcurrent}
+              disabled={settingsLoading || settingsSaving}
+              onChange={(event) => setMaxConcurrent(Number(event.target.value))}
+              onBlur={() => void updateMaxConcurrent(maxConcurrent)}
+            />
+          </label>
           <ConfigSwitch
             checked={builtInEnabled}
             disabled={settingsLoading || reloading}
@@ -468,23 +481,6 @@ export function AgentsConfig({
             onChange={(enabled) => void toggleBuiltInSubagents(enabled)}
           />
         </div>
-      </div>
-      <div className="agents-feature-setting">
-        <div className="agents-feature-copy">
-          <strong>{t("agents.maxConcurrent")}</strong>
-          <span>{t("agents.maxConcurrentDescription")}</span>
-        </div>
-        <input
-          aria-label={t("agents.maxConcurrent")}
-          type="number"
-          min={1}
-          max={32}
-          value={maxConcurrent}
-          disabled={settingsLoading || settingsSaving}
-          onChange={(event) => setMaxConcurrent(Number(event.target.value))}
-          onBlur={() => void updateMaxConcurrent(maxConcurrent)}
-          style={{ ...inputStyle, width: 76 }}
-        />
       </div>
       <ConfigSplitView>
         <ConfigSidebar>
