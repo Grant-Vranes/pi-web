@@ -135,20 +135,33 @@ export default function ExcalidrawViewer({
   const filesRef = useRef<BinaryFiles | null>(null);
   const sceneRequestRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
-  const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const [excalidrawApi, setExcalidrawApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
-  // The Excalidraw component is keyed per (file, reload), so this fires once
-  // per fresh mount. Wait one frame so initialData has been applied, then fit
-  // the viewport to the drawing — saved scenes can carry stale scroll/zoom
-  // state that leaves the content off-screen.
+  // The excalidrawAPI callback fires from the internal App class constructor,
+  // i.e. during render — before React commits the mount. Calling
+  // scrollToContent there (even a frame later) can hit "setState on a
+  // component that is not yet mounted", so stash the api in state and fit the
+  // viewport from the effect below, which only runs after commit. Saved scenes
+  // can carry stale scroll/zoom state that leaves the content off-screen.
   const handleExcalidrawApi = useCallback((api: ExcalidrawImperativeAPI) => {
-    excalidrawApiRef.current = api;
-    requestAnimationFrame(() => {
-      api.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.8 });
-    });
+    setExcalidrawApi(api);
   }, []);
+
+  useEffect(() => {
+    if (!excalidrawApi) return;
+    let cancelled = false;
+    const raf = requestAnimationFrame(() => {
+      if (!cancelled) {
+        excalidrawApi.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.8 });
+      }
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [excalidrawApi]);
 
   const loadScene = useCallback(async () => {
     const requestId = ++sceneRequestRef.current;
