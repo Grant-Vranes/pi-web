@@ -12,7 +12,7 @@ import path from "node:path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const baseIcon = path.join(repoRoot, "public", "icons", "icon-512.png");
+const baseIcon = path.join(repoRoot, "public", "icons", "icon-mac-512.png");
 const outBright = path.join(repoRoot, "public", "icons", "dock-running-bright.png");
 const outDim = path.join(repoRoot, "public", "icons", "dock-running-dim.png");
 

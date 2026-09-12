@@ -148,7 +148,7 @@
       "target": [
         "dmg"
       ],
-      "icon": "public/icons/icon-white-512.png"
+      "icon": "public/icons/icon-mac-512.png"
     },
     "win": {
       "target": [
