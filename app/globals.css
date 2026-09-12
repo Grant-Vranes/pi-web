@@ -444,6 +444,13 @@ html.dark .web-login-error {
   border-radius: 2px;
 }
 
+/* Firefox: match the thin WebKit scrollbars above (class-level
+   scrollbar-width overrides, e.g. hidden tab-bar scrollbars, still win). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
 
 .extension-status-shelf {
   display: flex;
@@ -1273,6 +1280,16 @@ pre, code {
 .file-viewer-toolbar {
   min-width: 0;
   min-height: 35px;
+}
+
+/* File panel tab strip: too short for a native horizontal scrollbar (it
+   would cover the tab labels), so it is hidden and wheel scrolling maps to
+   horizontal panning in TabBar.tsx. */
+.tab-bar {
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .file-viewer-path {

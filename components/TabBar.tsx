@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
@@ -27,10 +27,35 @@ interface Props {
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  // The bar is only 36px tall, so a native horizontal scrollbar would cover
+  // the tab labels. It is hidden via CSS; vertical wheel scrolling is mapped
+  // to horizontal scrolling so overflowing tabs stay reachable.
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (event.shiftKey || event.deltaX !== 0) return;
+      if (bar.scrollWidth <= bar.clientWidth) return;
+      event.preventDefault();
+      bar.scrollLeft += event.deltaY;
+    };
+    bar.addEventListener("wheel", handleWheel, { passive: false });
+    return () => bar.removeEventListener("wheel", handleWheel);
+  }, []);
+
+  // Switching tabs (including via keyboard) keeps the active tab in view.
+  useEffect(() => {
+    barRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTabId, tabs.length]);
 
   return (
     <div
+      ref={barRef}
       role="tablist"
+      className="tab-bar"
       style={{
         display: "flex",
         alignItems: "flex-end",
